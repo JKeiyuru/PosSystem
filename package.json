@@ -7,8 +7,7 @@
     "server": "cd server && npm run dev",
     "client": "cd client && npm run dev",
     "dev": "concurrently \"npm run server\" \"npm run client\"",
-    "build": "cd client && npm run build",
-    "start": "node index.js"
+    "build": "cd client && npm run build"
   },
   "keywords": [],
   "author": "",
