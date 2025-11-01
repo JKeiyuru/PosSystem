@@ -6,7 +6,7 @@ const subUnitSchema = new mongoose.Schema({
   name: {
     type: String,
     required: true,
-    enum: ['kg', 'kasuku', 'bucket', 'bag',]
+    enum: ['kg', 'kasuku', 'bucket', 'bag','piece','g','liter']
   },
   conversionRate: {
     type: Number,
@@ -51,6 +51,13 @@ const productSchema = new mongoose.Schema({
     type: String,
     required: true,
     default: 'bag'
+  },
+  // Size of base unit (e.g., 70 for 70kg bag, 50 for 50kg bag, 1 for piece)
+  baseUnitSize: {
+    type: Number,
+    required: true,
+    default: 1,
+    min: 0
   },
   buyingPrice: {
     type: Number,

@@ -16,6 +16,7 @@ import { formatCurrency } from '../lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CloseOfBusinessDialog from '../components/reports/CloseOfBusinessDialog';
 import { AlertCircle } from 'lucide-react';
+import {Button} from '../components/ui/button'
 
 export default function Dashboard() {
   const [stats, setStats] = useState({

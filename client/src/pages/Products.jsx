@@ -1,5 +1,5 @@
-/* eslint-disable react-hooks/exhaustive-deps */
-// client/src/pages/Products.jsx - Update the form to include sub-units
+//eslint-disable react-hooks/exhaustive-deps */
+// client/src/pages/Products.jsx - Updated with auto-calculation
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -41,6 +41,7 @@ export default function Products() {
     category: '',
     description: '',
     baseUnit: 'bag',
+    baseUnitSize: '',
     buyingPrice: '',
     sellingPrice: '',
     quantity: '',
@@ -77,14 +78,53 @@ export default function Products() {
     }
   };
 
+  // Auto-calculate conversion rate based on pricing formula
+  const calculateConversionRate = (unitType, sellingPrice, unitPrice) => {
+    const baseSelling = parseFloat(sellingPrice) || 0;
+    const perUnitPrice = parseFloat(unitPrice) || 0;
+    
+    if (perUnitPrice <= 0) return '';
+
+    let totalIfSoldInUnits;
+    
+    if (unitType === 'kasuku') {
+      // Formula: (sellingPrice + 60) / pricePerKasuku
+      totalIfSoldInUnits = baseSelling + 60;
+    } else if (unitType === 'bucket') {
+      // Formula: (sellingPrice + 100) / pricePerBucket
+      totalIfSoldInUnits = baseSelling + 100;
+    } else if (unitType === 'kg') {
+      // For kg, use the base selling price directly
+      totalIfSoldInUnits = baseSelling;
+    } else {
+      return '';
+    }
+    
+    const conversionRate = totalIfSoldInUnits / perUnitPrice;
+    return conversionRate.toFixed(2);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
     try {
+      // Auto-calculate conversion rates before submission
+      const updatedSubUnits = formData.subUnits.map(subUnit => ({
+        ...subUnit,
+        conversionRate: parseFloat(subUnit.conversionRate) || 0,
+        pricePerUnit: parseFloat(subUnit.pricePerUnit) || 0,
+        profitMargin: subUnit.name === 'kasuku' ? 60 : subUnit.name === 'bucket' ? 100 : 0
+      }));
+
+      const dataToSubmit = {
+        ...formData,
+        subUnits: updatedSubUnits
+      };
+
       if (editingProduct) {
-        await productService.update(editingProduct._id, formData);
+        await productService.update(editingProduct._id, dataToSubmit);
       } else {
-        await productService.create(formData);
+        await productService.create(dataToSubmit);
       }
       
       setIsDialogOpen(false);
@@ -176,7 +216,41 @@ export default function Products() {
   const updateSubUnit = (index, field, value) => {
     const newSubUnits = [...formData.subUnits];
     newSubUnits[index][field] = value;
+    
+    // Auto-calculate conversion rate when price per unit changes
+    if (field === 'pricePerUnit' || field === 'name') {
+      const conversionRate = calculateConversionRate(
+        newSubUnits[index].name,
+        formData.sellingPrice,
+        field === 'pricePerUnit' ? value : newSubUnits[index].pricePerUnit
+      );
+      newSubUnits[index].conversionRate = conversionRate;
+      
+      // Set profit margin based on unit type
+      if (field === 'name') {
+        newSubUnits[index].profitMargin = value === 'kasuku' ? 60 : value === 'bucket' ? 100 : 0;
+      }
+    }
+    
     setFormData({ ...formData, subUnits: newSubUnits });
+  };
+
+  // Recalculate conversion rates when selling price changes
+  const handleSellingPriceChange = (value) => {
+    const updatedSubUnits = formData.subUnits.map(subUnit => ({
+      ...subUnit,
+      conversionRate: calculateConversionRate(
+        subUnit.name,
+        value,
+        subUnit.pricePerUnit
+      )
+    }));
+    
+    setFormData({
+      ...formData,
+      sellingPrice: value,
+      subUnits: updatedSubUnits
+    });
   };
 
   const handleImportExcel = async (e) => {
@@ -192,19 +266,61 @@ export default function Products() {
         const worksheet = workbook.Sheets[sheetName];
         const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-        const products = jsonData.map(row => ({
-          name: row.Name || row.name,
-          category: row.Category || row.category,
-          description: row.Description || row.description || '',
-          baseUnit: row['Base Unit'] || row.baseUnit || 'bag',
-          buyingPrice: parseFloat(row['Buying Price'] || row.buyingPrice || 0),
-          sellingPrice: parseFloat(row['Selling Price'] || row.sellingPrice || 0),
-          quantity: parseInt(row.Quantity || row.quantity || 0),
-          reorderLevel: parseInt(row['Reorder Level'] || row.reorderLevel || 10),
-          supplier: row.Supplier || row.supplier || '',
-          hasMultipleUnits: false,
-          subUnits: []
-        }));
+        const products = jsonData.map(row => {
+          const sellingPrice = parseFloat(row['Selling Price'] || row.sellingPrice || 0);
+          const kgPrice = parseFloat(row['Price Per Kg'] || row.pricePerKg || 0);
+          const kasukuPrice = parseFloat(row['Price Per Kasuku'] || row.pricePerKasuku || 0);
+          const bucketPrice = parseFloat(row['Price Per Bucket'] || row.pricePerBucket || 0);
+
+          const subUnits = [];
+
+          // Add kg sub-unit if price is provided
+          if (kgPrice > 0) {
+            const conversionRate = sellingPrice / kgPrice;
+            subUnits.push({
+              name: 'kg',
+              conversionRate: parseFloat(conversionRate.toFixed(2)),
+              pricePerUnit: kgPrice,
+              profitMargin: 0
+            });
+          }
+
+          // Add kasuku sub-unit if price is provided
+          if (kasukuPrice > 0) {
+            const conversionRate = (sellingPrice + 60) / kasukuPrice;
+            subUnits.push({
+              name: 'kasuku',
+              conversionRate: parseFloat(conversionRate.toFixed(2)),
+              pricePerUnit: kasukuPrice,
+              profitMargin: 60
+            });
+          }
+
+          // Add bucket sub-unit if price is provided
+          if (bucketPrice > 0) {
+            const conversionRate = (sellingPrice + 100) / bucketPrice;
+            subUnits.push({
+              name: 'bucket',
+              conversionRate: parseFloat(conversionRate.toFixed(2)),
+              pricePerUnit: bucketPrice,
+              profitMargin: 100
+            });
+          }
+
+          return {
+            name: row.Name || row.name,
+            category: row.Category || row.category,
+            description: row.Description || row.description || '',
+            baseUnit: row['Base Unit'] || row.baseUnit || 'bag',
+            buyingPrice: parseFloat(row['Buying Price'] || row.buyingPrice || 0),
+            sellingPrice: sellingPrice,
+            quantity: parseInt(row.Quantity || row.quantity || 0),
+            reorderLevel: parseInt(row['Reorder Level'] || row.reorderLevel || 10),
+            supplier: row.Supplier || row.supplier || '',
+            hasMultipleUnits: subUnits.length > 0,
+            subUnits: subUnits
+          };
+        });
 
         await productService.bulkImport(products);
         alert(`${products.length} products imported successfully!`);
@@ -407,6 +523,7 @@ export default function Products() {
                     <SelectItem value="bag">Bag</SelectItem>
                     <SelectItem value="kg">Kilogram (kg)</SelectItem>
                     <SelectItem value="piece">Piece</SelectItem>
+                    <SelectItem value="g">Grams</SelectItem>
                     <SelectItem value="liter">Liter</SelectItem>
                   </SelectContent>
                 </Select>
@@ -431,7 +548,7 @@ export default function Products() {
                   type="number"
                   step="0.01"
                   value={formData.sellingPrice}
-                  onChange={(e) => setFormData({...formData, sellingPrice: e.target.value})}
+                  onChange={(e) => handleSellingPriceChange(e.target.value)}
                   required
                 />
               </div>
@@ -511,20 +628,6 @@ export default function Products() {
                         </div>
 
                         <div className="space-y-2">
-                          <Label>Units per {formData.baseUnit}</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="e.g., 70"
-                            value={subUnit.conversionRate}
-                            onChange={(e) => updateSubUnit(index, 'conversionRate', e.target.value)}
-                          />
-                          <p className="text-xs text-gray-500">
-                            How many {subUnit.name}s in 1 {formData.baseUnit}
-                          </p>
-                        </div>
-
-                        <div className="space-y-2">
                           <Label>Price per {subUnit.name}</Label>
                           <Input
                             type="number"
@@ -536,16 +639,30 @@ export default function Products() {
                         </div>
 
                         <div className="space-y-2">
-                          <Label>Profit Margin (KES)</Label>
+                          <Label>Conversion Rate (auto)</Label>
                           <Input
                             type="number"
-                            step="1"
-                            placeholder="0"
-                            value={subUnit.profitMargin}
-                            onChange={(e) => updateSubUnit(index, 'profitMargin', e.target.value)}
+                            step="0.01"
+                            value={subUnit.conversionRate}
+                            readOnly
+                            className="bg-gray-100"
+                            title="Automatically calculated"
                           />
                           <p className="text-xs text-gray-500">
-                            Extra profit if full {formData.baseUnit} sold in this unit
+                            {subUnit.conversionRate} {subUnit.name}s per {formData.baseUnit}
+                          </p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label>Profit Margin</Label>
+                          <Input
+                            type="number"
+                            value={subUnit.profitMargin}
+                            readOnly
+                            className="bg-gray-100"
+                          />
+                          <p className="text-xs text-gray-500">
+                            Auto-set based on unit type
                           </p>
                         </div>
 
@@ -585,9 +702,9 @@ export default function Products() {
         </DialogContent>
       </Dialog>
 
-      {/* Import Excel Dialog - Keep as is */}
+      {/* Import Excel Dialog */}
       <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Import Products from Excel</DialogTitle>
           </DialogHeader>
@@ -596,20 +713,30 @@ export default function Products() {
               <Label>Excel File Format</Label>
               <div className="text-sm text-gray-600 space-y-1">
                 <p>Your Excel file should have the following columns:</p>
-                <ul className="list-disc list-inside pl-4">
-                  <li>Name (required)</li>
-                  <li>Category (required)</li>
-                  <li>Description</li>
-                  <li>Base Unit</li>
-                  <li>Buying Price (required)</li>
-                  <li>Selling Price (required)</li>
-                  <li>Quantity (required)</li>
-                  <li>Reorder Level</li>
-                  <li>Supplier</li>
+                <ul className="list-disc list-inside pl-4 space-y-1">
+                  <li><strong>Name</strong> (required)</li>
+                  <li><strong>Category</strong> (required)</li>
+                  <li><strong>Description</strong></li>
+                  <li><strong>Base Unit</strong> (e.g., bag, kg, piece)</li>
+                  <li><strong>Buying Price</strong> (required)</li>
+                  <li><strong>Selling Price</strong> (required - for base unit)</li>
+                  <li><strong>Price Per Kg</strong> (optional - for kg sub-unit)</li>
+                  <li><strong>Price Per Kasuku</strong> (optional - for kasuku sub-unit)</li>
+                  <li><strong>Price Per Bucket</strong> (optional - for bucket sub-unit)</li>
+                  <li><strong>Quantity</strong> (required)</li>
+                  <li><strong>Reorder Level</strong></li>
+                  <li><strong>Supplier</strong></li>
                 </ul>
-                <p className="text-xs text-orange-600 mt-2">
-                  Note: Sub-units must be added manually after import
-                </p>
+                <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                  <p className="font-semibold text-blue-900 mb-2">✨ Auto-Calculation Feature:</p>
+                  <ul className="text-xs space-y-1 text-blue-800">
+                    <li>• Conversion rates are <strong>automatically calculated</strong></li>
+                    <li>• Kasuku formula: (Selling Price + 60) ÷ Price Per Kasuku</li>
+                    <li>• Bucket formula: (Selling Price + 100) ÷ Price Per Bucket</li>
+                    <li>• Kg formula: Selling Price ÷ Price Per Kg</li>
+                    <li>• Just provide the unit prices - we'll handle the rest!</li>
+                  </ul>
+                </div>
               </div>
             </div>
 

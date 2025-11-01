@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { Header } from './Header';
+import InstallPrompt from './InstallPrompt';
 
 export const Layout = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -27,6 +28,8 @@ export const Layout = () => {
           <Outlet />
         </main>
       </div>
+
+      <InstallPrompt />
     </div>
   );
 };
