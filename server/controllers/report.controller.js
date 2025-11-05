@@ -5,6 +5,8 @@ import Product from '../models/Product.model.js';
 import Customer from '../models/Customer.model.js';
 import StockMovement from '../models/StockMovement.model.js';
 
+// server/controllers/report.controller.js - Fix getDailySalesReport
+
 export const getDailySalesReport = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -14,15 +16,27 @@ export const getDailySalesReport = async (req, res) => {
 
     const sales = await Sale.find({
       saleDate: { $gte: start, $lte: end }
-    }).populate('customer').populate('cashier', 'name');
+    }).populate('items.product').populate('customer').populate('cashier', 'name');
 
     const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
-    const totalCost = await calculateCostOfGoodsSold(sales);
+    
+    // Calculate actual cost of goods sold
+    let totalCost = 0;
+    for (const sale of sales) {
+      for (const item of sale.items) {
+        if (item.product) {
+          // Cost = buying price * quantity in base units
+          const costForItem = item.product.buyingPrice * (item.baseUnitQuantity || item.quantity);
+          totalCost += costForItem;
+        }
+      }
+    }
+    
     const grossProfit = totalRevenue - totalCost;
 
     const paymentBreakdown = {
-      cash: sales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.total, 0),
-      mpesa: sales.filter(s => s.paymentMethod === 'mpesa').reduce((sum, s) => sum + s.total, 0),
+      cash: sales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.amountPaid, 0),
+      mpesa: sales.filter(s => s.paymentMethod === 'mpesa').reduce((sum, s) => sum + s.amountPaid, 0),
       credit: sales.filter(s => s.paymentMethod === 'credit').reduce((sum, s) => sum + s.total, 0)
     };
 
@@ -35,7 +49,7 @@ export const getDailySalesReport = async (req, res) => {
           totalRevenue,
           totalCost,
           grossProfit,
-          profitMargin: ((grossProfit / totalRevenue) * 100).toFixed(2) + '%'
+          profitMargin: totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100).toFixed(2) + '%' : '0%'
         },
         paymentBreakdown,
         sales

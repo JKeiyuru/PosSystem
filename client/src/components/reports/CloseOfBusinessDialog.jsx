@@ -31,47 +31,48 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
   const [emailProgress, setEmailProgress] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
 
-  const handleCalculatePreview = async () => {
-    const openingCash = parseFloat(formData.openingCash) || 0;
-    const actualCash = parseFloat(formData.actualCash) || 0;
-    const totalExpenses = parseFloat(formData.totalExpenses) || 0;
+ const handleCalculatePreview = async () => {
+  const openingCash = parseFloat(formData.openingCash) || 0;
+  const actualCash = parseFloat(formData.actualCash) || 0;
+  const totalExpenses = parseFloat(formData.totalExpenses) || 0;
 
-    if (!openingCash || !actualCash) {
-      alert('Please enter opening cash and actual cash');
-      return;
-    }
+  if (!openingCash || !actualCash) {
+    alert('Please enter opening cash and actual cash');
+    return;
+  }
 
-    try {
-      setLoading(true);
+  try {
+    setLoading(true);
 
-      // Get today's sales
-      const today = new Date().toISOString().split('T')[0];
-      const salesResponse = await api.get('/sales/daily', { params: { date: today } });
-      const summary = salesResponse.data.data.summary;
+    const today = new Date().toISOString().split('T')[0];
+    const salesResponse = await api.get('/sales/daily', { params: { date: today } });
+    const summary = salesResponse.data.data.summary;
 
-      const expectedCash = openingCash + summary.totalCash + summary.totalMpesa - totalExpenses;
-      const variance = actualCash - expectedCash;
+    // Expected cash = Opening + Cash Sales ONLY - Expenses
+    // M-Pesa is NOT included
+    const expectedCash = openingCash + summary.totalCash - totalExpenses;
+    const variance = actualCash - expectedCash;
 
-      setPreview({
-        openingCash,
-        cashSales: summary.totalCash,
-        mpesaSales: summary.totalMpesa,
-        totalExpenses,
-        expectedCash,
-        actualCash,
-        variance,
-        salesCount: summary.salesCount,
-        totalRevenue: summary.totalSales
-      });
+    setPreview({
+      openingCash,
+      cashSales: summary.totalCash,
+      mpesaSales: summary.totalMpesa,
+      totalExpenses,
+      expectedCash,
+      actualCash,
+      variance,
+      salesCount: summary.salesCount,
+      totalRevenue: summary.totalSales
+    });
 
-      setShowPreview(true);
-    } catch (error) {
-      console.error('Error calculating preview:', error);
-      alert('Error calculating preview: ' + error.message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    setShowPreview(true);
+  } catch (error) {
+    console.error('Error calculating preview:', error);
+    alert('Error calculating preview: ' + error.message);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const handleSubmit = async () => {
     if (!preview) {
@@ -240,37 +241,39 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Daily Checks & Balances Preview</h3>
 
-                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="text-sm text-gray-600">Opening Cash</p>
-                    <p className="text-lg font-semibold">{formatCurrency(preview.openingCash)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Cash Sales</p>
-                    <p className="text-lg font-semibold text-green-600">+{formatCurrency(preview.cashSales)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">M-Pesa Sales</p>
-                    <p className="text-lg font-semibold text-green-600">+{formatCurrency(preview.mpesaSales)}</p>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Expenses</p>
-                    <p className="text-lg font-semibold text-red-600">-{formatCurrency(preview.totalExpenses)}</p>
-                  </div>
-                </div>
+                / Update the preview display to show M-Pesa separately
+<div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+  <div>
+    <p className="text-sm text-gray-600">Opening Cash</p>
+    <p className="text-lg font-semibold">{formatCurrency(preview.openingCash)}</p>
+  </div>
+  <div>
+    <p className="text-sm text-gray-600">Cash Sales</p>
+    <p className="text-lg font-semibold text-green-600">+{formatCurrency(preview.cashSales)}</p>
+  </div>
+  <div>
+    <p className="text-sm text-gray-600">M-Pesa Sales (Not Cash)</p>
+    <p className="text-lg font-semibold text-purple-600">+{formatCurrency(preview.mpesaSales)}</p>
+  </div>
+  <div>
+    <p className="text-sm text-gray-600">Expenses</p>
+    <p className="text-lg font-semibold text-red-600">-{formatCurrency(preview.totalExpenses)}</p>
+  </div>
+</div>
 
-                <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-600">Expected Cash</p>
-                      <p className="text-xl font-bold">{formatCurrency(preview.expectedCash)}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Actual Cash</p>
-                      <p className="text-xl font-bold">{formatCurrency(preview.actualCash)}</p>
-                    </div>
-                  </div>
-                </div>
+<div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
+  <p className="text-xs text-gray-600 mb-2">Note: M-Pesa is not counted in expected cash as it's digital payment</p>
+  <div className="grid grid-cols-2 gap-4">
+    <div>
+      <p className="text-sm text-gray-600">Expected Cash</p>
+      <p className="text-xl font-bold">{formatCurrency(preview.expectedCash)}</p>
+    </div>
+    <div>
+      <p className="text-sm text-gray-600">Actual Cash</p>
+      <p className="text-xl font-bold">{formatCurrency(preview.actualCash)}</p>
+    </div>
+  </div>
+</div>
 
                 <div className={`p-4 rounded-lg border-2 ${preview.variance >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                   <div className="text-center">

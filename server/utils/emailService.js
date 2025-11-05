@@ -92,30 +92,34 @@ export const sendDailyReportWithBalance = async (dailyReportId) => {
             <!-- Daily Checks & Balances -->
             <div class="section">
               <h2>📊 Daily Checks & Balances</h2>
-              <div class="summary-item">
-                <span class="label">Opening Cash:</span>
-                <span class="value">${settings.currency} ${dailyReport.openingCash.toLocaleString()}</span>
-              </div>
-              <div class="summary-item">
-                <span class="label">Cash Sales:</span>
-                <span class="value positive">${settings.currency} ${dailyReport.cashSales.toLocaleString()}</span>
-              </div>
-              <div class="summary-item">
-                <span class="label">M-Pesa Sales:</span>
-                <span class="value positive">${settings.currency} ${dailyReport.mpesaSales.toLocaleString()}</span>
-              </div>
-              <div class="summary-item">
-                <span class="label">Total Expenses:</span>
-                <span class="value negative">-${settings.currency} ${dailyReport.totalExpenses.toLocaleString()}</span>
-              </div>
-              <div class="summary-item">
-                <span class="label">Expected Cash:</span>
-                <span class="value">${settings.currency} ${dailyReport.expectedCash.toLocaleString()}</span>
-              </div>
-              <div class="summary-item">
-                <span class="label">Actual Cash:</span>
-                <span class="value">${settings.currency} ${dailyReport.actualCash.toLocaleString()}</span>
-              </div>
+              // server/utils/emailService.js - Update sendDailyReportWithBalance
+
+// In the email HTML, update the expected cash calculation section:
+
+<div class="summary-item">
+  <span class="label">Opening Cash:</span>
+  <span class="value">${settings.currency} ${dailyReport.openingCash.toLocaleString()}</span>
+</div>
+<div class="summary-item">
+  <span class="label">Cash Sales:</span>
+  <span class="value positive">+${settings.currency} ${dailyReport.cashSales.toLocaleString()}</span>
+</div>
+<div class="summary-item">
+  <span class="label">M-Pesa Sales (Not Cash):</span>
+  <span class="value" style="color: #8b5cf6;">+${settings.currency} ${dailyReport.mpesaSales.toLocaleString()}</span>
+</div>
+<div class="summary-item">
+  <span class="label">Total Expenses:</span>
+  <span class="value negative">-${settings.currency} ${dailyReport.totalExpenses.toLocaleString()}</span>
+</div>
+<div class="summary-item">
+  <span class="label">Expected Cash:</span>
+  <span class="value">${settings.currency} ${dailyReport.expectedCash.toLocaleString()}</span>
+</div>
+<div class="summary-item">
+  <span class="label">Actual Cash:</span>
+  <span class="value">${settings.currency} ${dailyReport.actualCash.toLocaleString()}</span>
+</div>
               
               <div class="variance-box">
                 <div style="font-size: 1.2em; margin-bottom: 5px;">Cash Variance</div>

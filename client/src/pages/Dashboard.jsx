@@ -1,7 +1,16 @@
-// client/src/pages/Dashboard.jsx
+// client/src/pages/Dashboard.jsx - Add clickable cards with dialogs
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { 
+  Table, 
+  TableBody, 
+  TableCell, 
+  TableHead, 
+  TableHeader, 
+  TableRow 
+} from '../components/ui/table';
 import { 
   DollarSign, 
   ShoppingCart, 
@@ -12,11 +21,12 @@ import {
 import { saleService } from '../services/sale.service';
 import { productService } from '../services/product.service';
 import { stockService } from '../services/stock.service';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, formatDateTime } from '../lib/utils';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import CloseOfBusinessDialog from '../components/reports/CloseOfBusinessDialog';
+import { Button } from '../components/ui/button';
 import { AlertCircle } from 'lucide-react';
-import {Button} from '../components/ui/button'
+import { Badge } from '../components/ui/badge';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -27,8 +37,11 @@ export default function Dashboard() {
   });
   const [salesData, setSalesData] = useState([]);
   const [lowStockProducts, setLowStockProducts] = useState([]);
+  const [todaysSales, setTodaysSales] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCloseBusinessDialog, setShowCloseBusinessDialog] = useState(false);
+  const [showLowStockDialog, setShowLowStockDialog] = useState(false);
+  const [showTodaysSalesDialog, setShowTodaysSalesDialog] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -38,14 +51,11 @@ export default function Dashboard() {
     try {
       setLoading(true);
       
-      // Fetch today's sales
       const dailySalesRes = await saleService.getDailySales();
       const todaySales = dailySalesRes.data.summary;
+      const salesList = dailySalesRes.data.sales;
       
-      // Fetch low stock products
       const lowStockRes = await productService.getLowStock();
-      
-      // Fetch stock value
       const stockValueRes = await stockService.getStockValue();
 
       setStats({
@@ -55,9 +65,9 @@ export default function Dashboard() {
         stockValue: stockValueRes.data.stockValue
       });
 
-      setLowStockProducts(lowStockRes.data.slice(0, 5));
+      setLowStockProducts(lowStockRes.data);
+      setTodaysSales(salesList);
 
-      // Mock sales chart data (you can replace with actual API call)
       setSalesData([
         { name: 'Mon', sales: 12000 },
         { name: 'Tue', sales: 19000 },
@@ -81,27 +91,26 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold">Dashboard</h1>
-        <p className="text-gray-600">Welcome to Bekhal Animal Feeds POS</p>
-        <div className="flex justify-between items-center">
-  <div>
-    <h1 className="text-3xl font-bold">Dashboard</h1>
-    <p className="text-gray-600">Welcome to Bekhal Animal Feeds POS</p>
-  </div>
-  <Button 
-    onClick={() => setShowCloseBusinessDialog(true)}
-    className="bg-red-600 hover:bg-red-700"
-  >
-    <AlertCircle className="mr-2 h-4 w-4" />
-    Close of Business
-  </Button>
-</div>
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold">Dashboard</h1>
+          <p className="text-gray-600">Welcome to Bekhal Animal Feeds POS</p>
+        </div>
+        <Button 
+          onClick={() => setShowCloseBusinessDialog(true)}
+          className="bg-red-600 hover:bg-red-700"
+        >
+          <AlertCircle className="mr-2 h-4 w-4" />
+          Close of Business
+        </Button>
       </div>
 
       {/* Stats Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
+        <Card 
+          className="cursor-pointer hover:shadow-lg transition-shadow"
+          onClick={() => setShowTodaysSalesDialog(true)}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Today's Sales</CardTitle>
             <ShoppingCart className="h-4 w-4 text-muted-foreground" />
@@ -109,7 +118,7 @@ export default function Dashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.todaySales}</div>
             <p className="text-xs text-muted-foreground">
-              Total transactions today
+              Click to view details
             </p>
           </CardContent>
         </Card>
@@ -140,7 +149,10 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card 
+          className="cursor-pointer hover:shadow-lg transition-shadow"
+          onClick={() => setShowLowStockDialog(true)}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
             <AlertTriangle className="h-4 w-4 text-yellow-500" />
@@ -148,7 +160,7 @@ export default function Dashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.lowStockCount}</div>
             <p className="text-xs text-muted-foreground">
-              Items need restocking
+              Click to view items
             </p>
           </CardContent>
         </Card>
@@ -172,23 +184,23 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* Low Stock Alert */}
-      {lowStockProducts.length > 0 && (
+      {/* Low Stock Alert - Keep visible but less prominent */}
+      {lowStockProducts.length > 0 && lowStockProducts.slice(0, 5).length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center space-x-2">
               <AlertTriangle className="h-5 w-5 text-yellow-500" />
-              <span>Low Stock Alert</span>
+              <span>Low Stock Alert (Top 5)</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {lowStockProducts.map((product) => (
+              {lowStockProducts.slice(0, 5).map((product) => (
                 <div key={product._id} className="flex items-center justify-between p-3 bg-yellow-50 rounded-lg">
                   <div>
                     <p className="font-medium">{product.name}</p>
                     <p className="text-sm text-gray-600">
-                      Current: {product.quantity} {product.unit} | Reorder: {product.reorderLevel} {product.unit}
+                      Current: {product.quantity} {product.baseUnit} | Reorder: {product.reorderLevel} {product.baseUnit}
                     </p>
                   </div>
                   <span className="text-yellow-600 font-semibold">Low Stock</span>
@@ -198,11 +210,113 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* Low Stock Dialog */}
+      <Dialog open={showLowStockDialog} onOpenChange={setShowLowStockDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Low Stock Items ({lowStockProducts.length})</DialogTitle>
+          </DialogHeader>
+          
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Product</TableHead>
+                <TableHead>Category</TableHead>
+                <TableHead>Current Stock</TableHead>
+                <TableHead>Reorder Level</TableHead>
+                <TableHead>Status</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {lowStockProducts.map((product) => (
+                <TableRow key={product._id}>
+                  <TableCell className="font-medium">{product.name}</TableCell>
+                  <TableCell>{product.category}</TableCell>
+                  <TableCell>{product.quantity} {product.baseUnit}</TableCell>
+                  <TableCell>{product.reorderLevel} {product.baseUnit}</TableCell>
+                  <TableCell>
+                    {product.quantity === 0 ? (
+                      <Badge variant="destructive">Out of Stock</Badge>
+                    ) : (
+                      <Badge variant="warning">Low Stock</Badge>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </DialogContent>
+      </Dialog>
+
+      {/* Today's Sales Dialog */}
+      <Dialog open={showTodaysSalesDialog} onOpenChange={setShowTodaysSalesDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Today's Sales ({todaysSales.length})</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-4">
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-gray-600">Total Sales</div>
+                  <div className="text-2xl font-bold">{todaysSales.length}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-gray-600">Total Revenue</div>
+                  <div className="text-2xl font-bold">{formatCurrency(stats.todayRevenue)}</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="pt-6">
+                  <div className="text-sm text-gray-600">Average Sale</div>
+                  <div className="text-2xl font-bold">
+                    {formatCurrency(todaysSales.length > 0 ? stats.todayRevenue / todaysSales.length : 0)}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Sale #</TableHead>
+                  <TableHead>Time</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead>Payment</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {todaysSales.map((sale) => (
+                  <TableRow key={sale._id}>
+                    <TableCell className="font-medium">{sale.saleNumber}</TableCell>
+                    <TableCell>{formatDateTime(sale.saleDate)}</TableCell>
+                    <TableCell>{sale.customerName || 'Walk-in'}</TableCell>
+                    <TableCell className="capitalize">{sale.paymentMethod}</TableCell>
+                    <TableCell>{formatCurrency(sale.total)}</TableCell>
+                    <TableCell>
+                      <Badge variant={sale.paymentStatus === 'paid' ? 'success' : 'warning'}>
+                        {sale.paymentStatus}
+                      </Badge>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <CloseOfBusinessDialog 
-  open={showCloseBusinessDialog}
-  onOpenChange={setShowCloseBusinessDialog}
-  onSuccess={fetchDashboardData}
-/>
+        open={showCloseBusinessDialog}
+        onOpenChange={setShowCloseBusinessDialog}
+        onSuccess={fetchDashboardData}
+      />
     </div>
   );
 }

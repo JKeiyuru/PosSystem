@@ -3,6 +3,8 @@
 import DailyReport from '../models/DailyReport.model.js';
 import Sale from '../models/Sale.model.js';
 
+// server/controllers/dailyReport.controller.js - Update createDailyReport
+
 export const createDailyReport = async (req, res) => {
   try {
     const { 
@@ -14,7 +16,6 @@ export const createDailyReport = async (req, res) => {
       notes 
     } = req.body;
 
-    // Get sales for the day
     const date = new Date(reportDate);
     const startOfDay = new Date(date.setHours(0, 0, 0, 0));
     const endOfDay = new Date(date.setHours(23, 59, 59, 999));
@@ -26,23 +27,25 @@ export const createDailyReport = async (req, res) => {
       }
     });
 
-    // Calculate sales summary
     const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
+    
+    // Only CASH sales contribute to expected cash
     const cashSales = sales.filter(s => s.paymentMethod === 'cash')
       .reduce((sum, s) => sum + s.amountPaid, 0);
+    
+    // M-Pesa is separate - not counted as cash
     const mpesaSales = sales.filter(s => s.paymentMethod === 'mpesa')
       .reduce((sum, s) => sum + s.amountPaid, 0);
+    
     const creditSales = sales.filter(s => s.paymentMethod === 'credit')
       .reduce((sum, s) => sum + s.total, 0);
 
-    // Calculate expected cash
-    // Expected = Opening Cash + Cash Sales + M-Pesa Sales - Expenses
-    const expectedCash = parseFloat(openingCash) + cashSales + mpesaSales - parseFloat(totalExpenses);
+    // Expected cash = Opening Cash + Cash Sales ONLY - Expenses
+    // M-Pesa is NOT included in expected cash
+    const expectedCash = parseFloat(openingCash) + cashSales - parseFloat(totalExpenses);
     
-    // Calculate variance
     const variance = parseFloat(actualCash) - expectedCash;
 
-    // Check if report already exists for this date
     const existingReport = await DailyReport.findOne({
       reportDate: {
         $gte: startOfDay,
@@ -57,7 +60,6 @@ export const createDailyReport = async (req, res) => {
       });
     }
 
-    // Create daily report
     const dailyReport = await DailyReport.create({
       reportDate: new Date(reportDate),
       openingCash: parseFloat(openingCash),

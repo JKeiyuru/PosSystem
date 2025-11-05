@@ -83,11 +83,7 @@ export default function Login() {
             </Button>
           </form>
 
-          <div className="mt-6 text-center text-sm text-gray-600">
-            <p>Demo Credentials:</p>
-            <p className="font-mono">Email: admin@bekhal.com</p>
-            <p className="font-mono">Password: admin123</p>
-          </div>
+          
         </CardContent>
       </Card>
     </div>

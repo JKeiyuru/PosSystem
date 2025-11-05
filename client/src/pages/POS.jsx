@@ -78,6 +78,28 @@ export default function POS() {
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
 
+
+  // Add useEffect to load cart from localStorage on mount
+useEffect(() => {
+  const savedCart = localStorage.getItem('pos-cart');
+  if (savedCart) {
+    try {
+      const parsedCart = JSON.parse(savedCart);
+      setCart(parsedCart);
+    } catch (error) {
+      console.error('Error loading saved cart:', error);
+    }
+  }
+}, []);
+
+// Add useEffect to save cart whenever it changes
+useEffect(() => {
+  if (cart.length > 0) {
+    localStorage.setItem('pos-cart', JSON.stringify(cart));
+  } else {
+    localStorage.removeItem('pos-cart');
+  }
+}, [cart]);
   const handleProductClick = (product) => {
     if (product.hasMultipleUnits && product.subUnits.length > 0) {
       // Show unit selection dialog
@@ -207,6 +229,10 @@ export default function POS() {
       const response = await saleService.create(saleData);
       setCompletedSale(response.data);
       setShowReceipt(true);
+
+       // Clear saved cart after successful sale
+    localStorage.removeItem('pos-cart');
+    
       
       // Reset form
       setCart([]);
