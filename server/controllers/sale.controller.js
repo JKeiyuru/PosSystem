@@ -173,7 +173,7 @@ export const createSale = async (req, res) => {
 // Keep all other existing functions...
 export const getAllSales = async (req, res) => {
   try {
-    const { startDate, endDate, paymentMethod, paymentStatus } = req.query;
+    const { startDate, endDate, paymentMethod, paymentStatus, customer } = req.query;
     
     let query = {};
 
@@ -184,7 +184,15 @@ export const getAllSales = async (req, res) => {
     }
 
     if (paymentMethod) query.paymentMethod = paymentMethod;
-    if (paymentStatus) query.paymentStatus = paymentStatus;
+    if (paymentStatus) {
+      // Handle multiple statuses separated by comma
+      if (paymentStatus.includes(',')) {
+        query.paymentStatus = { $in: paymentStatus.split(',') };
+      } else {
+        query.paymentStatus = paymentStatus;
+      }
+    }
+    if (customer) query.customer = customer;
 
     const sales = await Sale.find(query)
       .populate('customer')

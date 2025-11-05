@@ -1,5 +1,4 @@
-/* eslint-disable react-hooks/exhaustive-deps */
-// client/src/pages/Customers.jsx
+// client/src/pages/Customers.jsx - Add credit payment dialog
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -23,15 +22,20 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Plus, Edit, Trash2, Search, CreditCard } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, CreditCard, DollarSign } from 'lucide-react';
 import { customerService } from '../services/customer.service';
-import { formatCurrency } from '../lib/utils';
+import { saleService } from '../services/sale.service';
+import { formatCurrency, formatDateTime } from '../lib/utils';
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isCreditDialogOpen, setIsCreditDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [customerSales, setCustomerSales] = useState([]);
+  const [paymentAmount, setPaymentAmount] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -52,6 +56,43 @@ export default function Customers() {
       setCustomers(response.data);
     } catch (error) {
       console.error('Error fetching customers:', error);
+    }
+  };
+
+  const handleCreditClick = async (customer) => {
+    try {
+      setSelectedCustomer(customer);
+      
+      // Fetch customer's unpaid sales
+      const response = await saleService.getAll({
+        customer: customer._id,
+        paymentStatus: 'unpaid,partial'
+      });
+      
+      setCustomerSales(response.data.filter(sale => sale.amountDue > 0));
+      setIsCreditDialogOpen(true);
+    } catch (error) {
+      console.error('Error fetching customer sales:', error);
+    }
+  };
+
+  const handlePayment = async (saleId) => {
+    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+      alert('Please enter a valid payment amount');
+      return;
+    }
+
+    try {
+      await saleService.updatePayment(saleId, { amountPaid: parseFloat(paymentAmount) });
+      alert('Payment recorded successfully');
+      
+      // Refresh data
+      await handleCreditClick(selectedCustomer);
+      await fetchCustomers();
+      setPaymentAmount('');
+    } catch (error) {
+      console.error('Error recording payment:', error);
+      alert('Error recording payment: ' + (error.response?.data?.message || error.message));
     }
   };
 
@@ -173,10 +214,13 @@ export default function Customers() {
                   <TableCell>{formatCurrency(customer.totalPurchases)}</TableCell>
                   <TableCell>
                     {customer.currentCredit > 0 ? (
-                      <span className="text-red-600 font-semibold flex items-center">
+                      <button
+                        onClick={() => handleCreditClick(customer)}
+                        className="text-red-600 font-semibold flex items-center hover:underline cursor-pointer"
+                      >
                         <CreditCard className="h-4 w-4 mr-1" />
                         {formatCurrency(customer.currentCredit)}
-                      </span>
+                      </button>
                     ) : (
                       <span className="text-green-600">{formatCurrency(0)}</span>
                     )}
@@ -207,7 +251,7 @@ export default function Customers() {
         </CardContent>
       </Card>
 
-      {/* Add/Edit Customer Dialog */}
+      {/* Add/Edit Customer Dialog - Keep as is */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -300,6 +344,90 @@ export default function Customers() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Credit Payment Dialog */}
+      <Dialog open={isCreditDialogOpen} onOpenChange={setIsCreditDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Credit Details - {selectedCustomer?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <Card className="bg-red-50">
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-gray-600">Total Credit Outstanding</p>
+                    <p className="text-3xl font-bold text-red-600">
+                      {formatCurrency(selectedCustomer?.currentCredit || 0)}
+                    </p>
+                  </div>
+                  <CreditCard className="h-12 w-12 text-red-400" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <div>
+              <h3 className="font-semibold mb-3">Unpaid Sales</h3>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Sale #</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Total</TableHead>
+                    <TableHead>Paid</TableHead>
+                    <TableHead>Due</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Action</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {customerSales.map((sale) => (
+                    <TableRow key={sale._id}>
+                      <TableCell className="font-medium">{sale.saleNumber}</TableCell>
+                      <TableCell>{formatDateTime(sale.saleDate)}</TableCell>
+                      <TableCell>{formatCurrency(sale.total)}</TableCell>
+                      <TableCell className="text-green-600">{formatCurrency(sale.amountPaid)}</TableCell>
+                      <TableCell className="text-red-600 font-semibold">{formatCurrency(sale.amountDue)}</TableCell>
+                      <TableCell>
+                        <Badge variant={sale.paymentStatus === 'paid' ? 'success' : 'warning'}>
+                          {sale.paymentStatus}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center space-x-2">
+                          <Input
+                            type="number"
+                            placeholder="Amount"
+                            className="w-24"
+                            value={paymentAmount}
+                            onChange={(e) => setPaymentAmount(e.target.value)}
+                          />
+                          <Button
+                            size="sm"
+                            onClick={() => handlePayment(sale._id)}
+                          >
+                            <DollarSign className="h-4 w-4 mr-1" />
+                            Pay
+                          </Button>
+                        </div>
+                      </TableCell>
+                      </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {customerSales.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No unpaid sales found for this customer
+                </div>
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
