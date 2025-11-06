@@ -4,6 +4,7 @@ import Sale from '../models/Sale.model.js';
 import Product from '../models/Product.model.js';
 import Customer from '../models/Customer.model.js';
 import StockMovement from '../models/StockMovement.model.js';
+import PaymentTransaction from '../models/PaymentTransaction.model.js';
 import mongoose from 'mongoose';
 
 export const createSale = async (req, res) => {
@@ -11,7 +12,7 @@ export const createSale = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { items, paymentMethod, paymentStatus, amountPaid, customer, notes } = req.body;
+    const { items, paymentMethod, paymentStatus, amountPaid, customer, notes, discount, transport } = req.body;
 
     if (!items || items.length === 0) {
       throw new Error('Sale must have at least one item');
@@ -27,11 +28,9 @@ export const createSale = async (req, res) => {
         throw new Error(`Product ${item.product} not found`);
       }
 
-      // Determine unit and price
       let unitPrice, unit, baseUnitQuantity;
       
       if (item.unit && item.unit !== product.baseUnit) {
-        // Selling in sub-unit
         const subUnit = product.subUnits.find(su => su.name === item.unit);
         
         if (!subUnit) {
@@ -40,21 +39,16 @@ export const createSale = async (req, res) => {
 
         unitPrice = subUnit.pricePerUnit;
         unit = item.unit;
-        
-        // Convert to base unit for inventory
         baseUnitQuantity = product.convertToBaseUnit(item.unit, item.quantity);
         
-        // Check stock
         if (!product.hasEnoughStock(item.unit, item.quantity)) {
           throw new Error(`Insufficient stock for ${product.name}. Available: ${Math.floor(product.quantity * subUnit.conversionRate)} ${unit}`);
         }
 
-        // Mark bag as opened if selling sub-unit
         if (unit !== product.baseUnit) {
           product.openedBags += Math.ceil(baseUnitQuantity);
         }
       } else {
-        // Selling in base unit (bag)
         unitPrice = product.sellingPrice;
         unit = product.baseUnit;
         baseUnitQuantity = item.quantity;
@@ -77,17 +71,14 @@ export const createSale = async (req, res) => {
         baseUnitQuantity
       });
 
-      // Update product quantity (always in base unit)
       product.quantity -= baseUnitQuantity;
       
-      // Ensure opened bags doesn't exceed total
       if (product.openedBags > Math.ceil(product.quantity)) {
         product.openedBags = Math.ceil(product.quantity);
       }
       
       await product.save({ session });
 
-      // Record stock movement
       await StockMovement.create([{
         product: product._id,
         movementType: 'sale',
@@ -99,7 +90,11 @@ export const createSale = async (req, res) => {
       }], { session });
     }
 
-    const total = subtotal;
+    // Calculate total with discount and transport
+    const discountAmount = parseFloat(discount) || 0;
+    const transportAmount = parseFloat(transport) || 0;
+    const total = subtotal - discountAmount + transportAmount;
+
     const paidAmount = parseFloat(amountPaid) || 0;
     let calculatedAmountDue = total - paidAmount;
     if (calculatedAmountDue < 0) calculatedAmountDue = 0;
@@ -124,6 +119,8 @@ export const createSale = async (req, res) => {
     const sale = await Sale.create([{
       items: saleItems,
       subtotal,
+      discount: discountAmount,
+      transport: transportAmount,
       total,
       paymentMethod,
       paymentStatus: finalPaymentStatus,
@@ -133,7 +130,8 @@ export const createSale = async (req, res) => {
       customerName,
       cashier: req.user.id,
       cashierName,
-      notes: notes || ''
+      notes: notes || '',
+      isCreditPayment: false
     }], { session });
 
     if (customer) {
@@ -170,7 +168,79 @@ export const createSale = async (req, res) => {
   }
 };
 
-// Keep all other existing functions...
+export const updateSalePayment = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { amountPaid, paymentMethod } = req.body;
+    const sale = await Sale.findById(req.params.id).session(session);
+
+    if (!sale) {
+      return res.status(404).json({
+        success: false,
+        message: 'Sale not found'
+      });
+    }
+
+    const payment = parseFloat(amountPaid);
+    
+    // Create payment transaction record
+    const paymentTransaction = await PaymentTransaction.create([{
+      customer: sale.customer,
+      customerName: sale.customerName,
+      amount: payment,
+      paymentMethod: paymentMethod || 'cash',
+      sales: [{
+        sale: sale._id,
+        amountApplied: payment
+      }],
+      receivedBy: req.user.id,
+      receivedByName: req.user.name,
+      notes: `Payment for sale ${sale.saleNumber}`
+    }], { session });
+
+    sale.amountPaid += payment;
+    sale.amountDue = Math.max(0, sale.total - sale.amountPaid);
+    
+    if (sale.amountDue <= 0) {
+      sale.paymentStatus = 'paid';
+      sale.amountDue = 0;
+    } else if (sale.amountPaid > 0) {
+      sale.paymentStatus = 'partial';
+    }
+
+    await sale.save({ session });
+
+    if (sale.customer) {
+      const customer = await Customer.findById(sale.customer).session(session);
+      if (customer) {
+        customer.currentCredit = Math.max(0, customer.currentCredit - payment);
+        await customer.save({ session });
+      }
+    }
+
+    await session.commitTransaction();
+
+    res.json({
+      success: true,
+      message: 'Payment updated successfully',
+      data: {
+        sale,
+        transaction: paymentTransaction[0]
+      }
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
 export const getAllSales = async (req, res) => {
   try {
     const { startDate, endDate, paymentMethod, paymentStatus, customer } = req.query;
@@ -185,7 +255,6 @@ export const getAllSales = async (req, res) => {
 
     if (paymentMethod) query.paymentMethod = paymentMethod;
     if (paymentStatus) {
-      // Handle multiple statuses separated by comma
       if (paymentStatus.includes(',')) {
         query.paymentStatus = { $in: paymentStatus.split(',') };
       } else {
@@ -237,51 +306,6 @@ export const getSaleById = async (req, res) => {
   }
 };
 
-export const updateSalePayment = async (req, res) => {
-  try {
-    const { amountPaid } = req.body;
-    const sale = await Sale.findById(req.params.id);
-
-    if (!sale) {
-      return res.status(404).json({
-        success: false,
-        message: 'Sale not found'
-      });
-    }
-
-    sale.amountPaid += parseFloat(amountPaid);
-    sale.amountDue = Math.max(0, sale.total - sale.amountPaid);
-    
-    if (sale.amountDue <= 0) {
-      sale.paymentStatus = 'paid';
-      sale.amountDue = 0;
-    } else if (sale.amountPaid > 0) {
-      sale.paymentStatus = 'partial';
-    }
-
-    await sale.save();
-
-    if (sale.customer) {
-      const customer = await Customer.findById(sale.customer);
-      if (customer) {
-        customer.currentCredit = Math.max(0, customer.currentCredit - parseFloat(amountPaid));
-        await customer.save();
-      }
-    }
-
-    res.json({
-      success: true,
-      message: 'Payment updated successfully',
-      data: sale
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
 export const getDailySales = async (req, res) => {
   try {
     const { date } = req.query;
@@ -290,6 +314,7 @@ export const getDailySales = async (req, res) => {
     const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
     const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
 
+    // Get sales (excluding credit payments as revenue)
     const sales = await Sale.find({
       saleDate: {
         $gte: startOfDay,
@@ -297,11 +322,38 @@ export const getDailySales = async (req, res) => {
       }
     }).populate('customer').populate('cashier', 'name');
 
-    const totalSales = sales.reduce((sum, sale) => sum + sale.total, 0);
+    // Get payment transactions for the day (credit payments)
+    const payments = await PaymentTransaction.find({
+      paymentDate: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+
+    // Calculate revenue: paid sales (non-credit) + credit payments
+    let totalRevenue = 0;
+    
+    // Add non-credit sales
+    sales.forEach(sale => {
+      if (sale.paymentMethod !== 'credit') {
+        totalRevenue += sale.amountPaid;
+      }
+    });
+
+    // Add credit payments
+    const creditPayments = payments.reduce((sum, pmt) => sum + pmt.amount, 0);
+    totalRevenue += creditPayments;
+
     const totalCash = sales.filter(s => s.paymentMethod === 'cash')
-      .reduce((sum, sale) => sum + sale.total, 0);
-    const totalMpesa = sales.filter(s => s.paymentMethod === 'mpesa')
-      .reduce((sum, sale) => sum + sale.total, 0);
+      .reduce((sum, sale) => sum + sale.amountPaid, 0) + 
+      payments.filter(p => p.paymentMethod === 'cash')
+      .reduce((sum, pmt) => sum + pmt.amount, 0);
+
+    const totalMpesa = sales.filter(s => s.paymentMethod.startsWith('mpesa'))
+      .reduce((sum, sale) => sum + sale.amountPaid, 0) +
+      payments.filter(p => p.paymentMethod.startsWith('mpesa'))
+      .reduce((sum, pmt) => sum + pmt.amount, 0);
+
     const totalCredit = sales.filter(s => s.paymentMethod === 'credit')
       .reduce((sum, sale) => sum + sale.total, 0);
 
@@ -309,11 +361,13 @@ export const getDailySales = async (req, res) => {
       success: true,
       data: {
         sales,
+        payments,
         summary: {
-          totalSales,
+          totalSales: totalRevenue,
           totalCash,
           totalMpesa,
           totalCredit,
+          creditPaymentsToday: creditPayments,
           salesCount: sales.length
         }
       }
@@ -340,11 +394,9 @@ export const deleteSale = async (req, res) => {
       });
     }
 
-    // Restore product quantities
     for (const item of sale.items) {
       const product = await Product.findById(item.product).session(session);
       if (product) {
-        // Restore using base unit quantity
         product.quantity += item.baseUnitQuantity || item.quantity;
         await product.save({ session });
 

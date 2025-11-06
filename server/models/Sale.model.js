@@ -12,12 +12,11 @@ const saleItemSchema = new mongoose.Schema({
   quantity: {
     type: Number,
     required: true,
-    min: 0.001  // Allow decimals for partial bags
+    min: 0.001
   },
   unit: {
     type: String,
     required: true,
-    // The unit in which it was sold (bag, kg, kasuku, bucket)
   },
   unitPrice: {
     type: Number,
@@ -29,11 +28,9 @@ const saleItemSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
-  // For inventory tracking
   baseUnitQuantity: {
     type: Number,
     required: true,
-    // Quantity in base unit (bags) for inventory deduction
   }
 });
 
@@ -48,12 +45,17 @@ const saleSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
-  tax: {
+  discount: {
     type: Number,
     default: 0,
     min: 0
   },
-  discount: {
+  transport: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  tax: {
     type: Number,
     default: 0,
     min: 0
@@ -65,7 +67,7 @@ const saleSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['cash', 'mpesa', 'credit'],
+    enum: ['cash', 'mpesa_paybill', 'mpesa_beth', 'mpesa_martin', 'credit'],
     required: true
   },
   paymentStatus: {
@@ -98,6 +100,11 @@ const saleSchema = new mongoose.Schema({
   saleDate: {
     type: Date,
     default: Date.now
+  },
+  // Track if this is a credit payment (not initial sale)
+  isCreditPayment: {
+    type: Boolean,
+    default: false
   }
 }, {
   timestamps: true
