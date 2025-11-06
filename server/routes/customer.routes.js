@@ -7,7 +7,8 @@ import {
   createCustomer,
   updateCustomer,
   deleteCustomer,
-  getCustomersWithCredit
+  getCustomersWithCredit,
+  getCustomerSalesHistory
 } from '../controllers/customer.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 
@@ -16,6 +17,7 @@ const router = express.Router();
 router.get('/', protect, getAllCustomers);
 router.get('/credit', protect, getCustomersWithCredit);
 router.get('/:id', protect, getCustomerById);
+router.get('/:id/sales-history', protect, getCustomerSalesHistory);
 router.post('/', protect, createCustomer);
 router.put('/:id', protect, updateCustomer);
 router.delete('/:id', protect, deleteCustomer);

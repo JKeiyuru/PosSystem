@@ -2,6 +2,7 @@
 
 import Customer from '../models/Customer.model.js';
 import Sale from '../models/Sale.model.js';
+import PaymentTransaction from '../models/PaymentTransaction.model.js';
 
 export const getAllCustomers = async (req, res) => {
   try {
@@ -52,6 +53,74 @@ export const getCustomerById = async (req, res) => {
       data: {
         customer,
         recentSales: sales
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const getCustomerSalesHistory = async (req, res) => {
+  try {
+    const { startDate, endDate, limit = 50, page = 1 } = req.query;
+    const customerId = req.params.id;
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Customer not found'
+      });
+    }
+
+    let query = { customer: customerId };
+
+    if (startDate || endDate) {
+      query.saleDate = {};
+      if (startDate) query.saleDate.$gte = new Date(startDate);
+      if (endDate) query.saleDate.$lte = new Date(endDate);
+    }
+
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+
+    const [sales, payments, totalSales] = await Promise.all([
+      Sale.find(query)
+        .sort({ createdAt: -1 })
+        .limit(parseInt(limit))
+        .skip(skip)
+        .populate('cashier', 'name'),
+      PaymentTransaction.find({ customer: customerId })
+        .sort({ createdAt: -1 }),
+      Sale.countDocuments(query)
+    ]);
+
+    // Calculate statistics
+    const totalPurchased = sales.reduce((sum, sale) => sum + sale.total, 0);
+    const totalPaid = sales.reduce((sum, sale) => sum + sale.amountPaid, 0);
+    const creditPayments = payments.reduce((sum, pmt) => sum + pmt.amount, 0);
+
+    res.json({
+      success: true,
+      data: {
+        customer,
+        sales,
+        payments,
+        statistics: {
+          totalSales: totalSales,
+          totalPurchased,
+          totalPaid,
+          creditPayments,
+          currentCredit: customer.currentCredit,
+          totalPurchases: customer.totalPurchases
+        },
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(totalSales / parseInt(limit))
+        }
       }
     });
   } catch (error) {

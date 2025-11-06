@@ -1,4 +1,4 @@
-// client/src/pages/Customers.jsx - Add credit payment dialog
+// client/src/pages/Customers.jsx - Enhanced with Sales History
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -22,19 +22,22 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Plus, Edit, Trash2, Search, CreditCard, DollarSign } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, CreditCard, DollarSign, History, Eye } from 'lucide-react';
 import { customerService } from '../services/customer.service';
 import { saleService } from '../services/sale.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
+import api from '../services/api';
 
 export default function Customers() {
   const [customers, setCustomers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isCreditDialogOpen, setIsCreditDialogOpen] = useState(false);
+  const [isSalesHistoryDialogOpen, setIsSalesHistoryDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [customerSales, setCustomerSales] = useState([]);
+  const [salesHistory, setSalesHistory] = useState(null);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [formData, setFormData] = useState({
     name: '',
@@ -63,7 +66,6 @@ export default function Customers() {
     try {
       setSelectedCustomer(customer);
       
-      // Fetch customer's unpaid sales
       const response = await saleService.getAll({
         customer: customer._id,
         paymentStatus: 'unpaid,partial'
@@ -73,6 +75,18 @@ export default function Customers() {
       setIsCreditDialogOpen(true);
     } catch (error) {
       console.error('Error fetching customer sales:', error);
+    }
+  };
+
+  const handleViewSalesHistory = async (customer) => {
+    try {
+      setSelectedCustomer(customer);
+      const response = await api.get(`/customers/${customer._id}/sales-history`);
+      setSalesHistory(response.data.data);
+      setIsSalesHistoryDialogOpen(true);
+    } catch (error) {
+      console.error('Error fetching sales history:', error);
+      alert('Error loading sales history');
     }
   };
 
@@ -86,7 +100,6 @@ export default function Customers() {
       await saleService.updatePayment(saleId, { amountPaid: parseFloat(paymentAmount) });
       alert('Payment recorded successfully');
       
-      // Refresh data
       await handleCreditClick(selectedCustomer);
       await fetchCustomers();
       setPaymentAmount('');
@@ -231,6 +244,14 @@ export default function Customers() {
                       <Button
                         size="sm"
                         variant="outline"
+                        onClick={() => handleViewSalesHistory(customer)}
+                        title="View Sales History"
+                      >
+                        <History className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
                         onClick={() => handleEdit(customer)}
                       >
                         <Edit className="h-4 w-4" />
@@ -251,7 +272,7 @@ export default function Customers() {
         </CardContent>
       </Card>
 
-      {/* Add/Edit Customer Dialog - Keep as is */}
+      {/* Add/Edit Customer Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -416,7 +437,7 @@ export default function Customers() {
                           </Button>
                         </div>
                       </TableCell>
-                      </TableRow>
+                    </TableRow>
                   ))}
                 </TableBody>
               </Table>
@@ -428,6 +449,115 @@ export default function Customers() {
               )}
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Sales History Dialog */}
+      <Dialog open={isSalesHistoryDialogOpen} onOpenChange={setIsSalesHistoryDialogOpen}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Sales History - {selectedCustomer?.name}
+            </DialogTitle>
+          </DialogHeader>
+
+          {salesHistory && (
+            <div className="space-y-4">
+              {/* Statistics Cards */}
+              <div className="grid grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-gray-600">Total Sales</div>
+                    <div className="text-2xl font-bold">{salesHistory.statistics.totalSales}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-gray-600">Total Purchased</div>
+                    <div className="text-2xl font-bold">{formatCurrency(salesHistory.statistics.totalPurchases)}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-gray-600">Total Paid</div>
+                    <div className="text-2xl font-bold text-green-600">{formatCurrency(salesHistory.statistics.totalPaid)}</div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-gray-600">Current Credit</div>
+                    <div className="text-2xl font-bold text-red-600">{formatCurrency(salesHistory.statistics.currentCredit)}</div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Sales Table */}
+              <div>
+                <h3 className="font-semibold mb-3">Recent Sales</h3>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Sale #</TableHead>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Items</TableHead>
+                      <TableHead>Total</TableHead>
+                      <TableHead>Paid</TableHead>
+                      <TableHead>Due</TableHead>
+                      <TableHead>Payment</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {salesHistory.sales.map((sale) => (
+                      <TableRow key={sale._id}>
+                        <TableCell className="font-medium">{sale.saleNumber}</TableCell>
+                        <TableCell>{formatDateTime(sale.saleDate)}</TableCell>
+                        <TableCell>{sale.items.length} items</TableCell>
+                        <TableCell>{formatCurrency(sale.total)}</TableCell>
+                        <TableCell className="text-green-600">{formatCurrency(sale.amountPaid)}</TableCell>
+                        <TableCell className="text-red-600">{formatCurrency(sale.amountDue)}</TableCell>
+                        <TableCell className="capitalize">{sale.paymentMethod.replace('_', ' ')}</TableCell>
+                        <TableCell>
+                          <Badge variant={sale.paymentStatus === 'paid' ? 'success' : 'warning'}>
+                            {sale.paymentStatus}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Payment Transactions */}
+              {salesHistory.payments.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-3">Credit Payment History</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Transaction #</TableHead>
+                        <TableHead>Date</TableHead>
+                        <TableHead>Amount</TableHead>
+                        <TableHead>Payment Method</TableHead>
+                        <TableHead>Received By</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {salesHistory.payments.map((payment) => (
+                        <TableRow key={payment._id}>
+                          <TableCell className="font-medium">{payment.transactionNumber}</TableCell>
+                          <TableCell>{formatDateTime(payment.paymentDate)}</TableCell>
+                          <TableCell className="text-green-600 font-semibold">{formatCurrency(payment.amount)}</TableCell>
+                          <TableCell className="capitalize">{payment.paymentMethod.replace('_', ' ')}</TableCell>
+                          <TableCell>{payment.receivedByName}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>

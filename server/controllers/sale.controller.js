@@ -90,7 +90,6 @@ export const createSale = async (req, res) => {
       }], { session });
     }
 
-    // Calculate total with discount and transport
     const discountAmount = parseFloat(discount) || 0;
     const transportAmount = parseFloat(transport) || 0;
     const total = subtotal - discountAmount + transportAmount;
@@ -185,7 +184,6 @@ export const updateSalePayment = async (req, res) => {
 
     const payment = parseFloat(amountPaid);
     
-    // Create payment transaction record
     const paymentTransaction = await PaymentTransaction.create([{
       customer: sale.customer,
       customerName: sale.customerName,
@@ -314,7 +312,6 @@ export const getDailySales = async (req, res) => {
     const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
     const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
 
-    // Get sales (excluding credit payments as revenue)
     const sales = await Sale.find({
       saleDate: {
         $gte: startOfDay,
@@ -322,7 +319,6 @@ export const getDailySales = async (req, res) => {
       }
     }).populate('customer').populate('cashier', 'name');
 
-    // Get payment transactions for the day (credit payments)
     const payments = await PaymentTransaction.find({
       paymentDate: {
         $gte: startOfDay,
@@ -330,20 +326,21 @@ export const getDailySales = async (req, res) => {
       }
     });
 
-    // Calculate revenue: paid sales (non-credit) + credit payments
+    // Calculate revenue: NON-credit sales (paid amount) + credit payments
     let totalRevenue = 0;
     
-    // Add non-credit sales
+    // Add non-credit sales (these are immediate revenue)
     sales.forEach(sale => {
       if (sale.paymentMethod !== 'credit') {
         totalRevenue += sale.amountPaid;
       }
     });
 
-    // Add credit payments
+    // Add credit payments (these are also revenue for the day)
     const creditPayments = payments.reduce((sum, pmt) => sum + pmt.amount, 0);
     totalRevenue += creditPayments;
 
+    // Calculate by payment method
     const totalCash = sales.filter(s => s.paymentMethod === 'cash')
       .reduce((sum, sale) => sum + sale.amountPaid, 0) + 
       payments.filter(p => p.paymentMethod === 'cash')
@@ -354,6 +351,7 @@ export const getDailySales = async (req, res) => {
       payments.filter(p => p.paymentMethod.startsWith('mpesa'))
       .reduce((sum, pmt) => sum + pmt.amount, 0);
 
+    // Credit is the amount taken on credit (not paid)
     const totalCredit = sales.filter(s => s.paymentMethod === 'credit')
       .reduce((sum, sale) => sum + sale.total, 0);
 
@@ -363,14 +361,91 @@ export const getDailySales = async (req, res) => {
         sales,
         payments,
         summary: {
-          totalSales: totalRevenue,
+          totalSales: totalRevenue, // This is the actual revenue
           totalCash,
           totalMpesa,
-          totalCredit,
-          creditPaymentsToday: creditPayments,
+          totalCredit, // This is credit given (not revenue)
+          creditPaymentsToday: creditPayments, // This is included in totalSales
           salesCount: sales.length
         }
       }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const getTopProducts = async (req, res) => {
+  try {
+    const { startDate, endDate, limit = 5 } = req.query;
+    
+    let matchQuery = {};
+    if (startDate || endDate) {
+      matchQuery.saleDate = {};
+      if (startDate) matchQuery.saleDate.$gte = new Date(startDate);
+      if (endDate) matchQuery.saleDate.$lte = new Date(endDate);
+    }
+
+    const topProducts = await Sale.aggregate([
+      { $match: matchQuery },
+      { $unwind: '$items' },
+      {
+        $group: {
+          _id: '$items.product',
+          productName: { $first: '$items.productName' },
+          totalQuantitySold: { $sum: '$items.quantity' },
+          totalRevenue: { $sum: '$items.totalPrice' },
+          salesCount: { $sum: 1 }
+        }
+      },
+      { $sort: { totalRevenue: -1 } },
+      { $limit: parseInt(limit) }
+    ]);
+
+    res.json({
+      success: true,
+      data: topProducts
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const getTopCustomers = async (req, res) => {
+  try {
+    const { startDate, endDate, limit = 5 } = req.query;
+    
+    let matchQuery = { customer: { $ne: null } };
+    if (startDate || endDate) {
+      matchQuery.saleDate = {};
+      if (startDate) matchQuery.saleDate.$gte = new Date(startDate);
+      if (endDate) matchQuery.saleDate.$lte = new Date(endDate);
+    }
+
+    const topCustomers = await Sale.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: '$customer',
+          customerName: { $first: '$customerName' },
+          totalPurchases: { $sum: '$total' },
+          totalPaid: { $sum: '$amountPaid' },
+          salesCount: { $sum: 1 }
+        }
+      },
+      { $sort: { totalPurchases: -1 } },
+      { $limit: parseInt(limit) }
+    ]);
+
+    res.json({
+      success: true,
+      data: topCustomers
     });
   } catch (error) {
     res.status(500).json({

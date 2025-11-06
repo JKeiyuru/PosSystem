@@ -1,4 +1,4 @@
-// client/src/components/pos/ReceiptActions.jsx - Update with working PDF and view modal
+// client/src/components/pos/ReceiptActions.jsx
 
 import { useState } from 'react';
 import { Button } from '../ui/button';
@@ -7,6 +7,7 @@ import { useReactToPrint } from 'react-to-print';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../ui/dialog';
+import { formatCurrency } from '../../lib/utils';
 
 export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose }) {
   const [showReceiptView, setShowReceiptView] = useState(false);
@@ -20,10 +21,7 @@ export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose
     if (!receiptRef.current) return;
 
     try {
-      // Show receipt temporarily for capture
       setShowReceiptView(true);
-      
-      // Wait for render
       await new Promise(resolve => setTimeout(resolve, 100));
 
       const receiptElement = receiptRef.current;
@@ -33,7 +31,7 @@ export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose
         useCORS: true,
         logging: false,
         backgroundColor: '#ffffff',
-        windowWidth: 302, // 80mm in pixels at 96dpi
+        windowWidth: 302,
         windowHeight: receiptElement.scrollHeight
       });
 
@@ -60,6 +58,17 @@ export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose
 
   const handleViewReceipt = () => {
     setShowReceiptView(true);
+  };
+
+  const getPaymentMethodDisplay = (method) => {
+    const methods = {
+      'cash': 'Cash',
+      'mpesa_paybill': 'M-Pesa (Paybill)',
+      'mpesa_beth': 'M-Pesa (Beth)',
+      'mpesa_martin': 'M-Pesa (Martin)',
+      'credit': 'Credit'
+    };
+    return methods[method] || method;
   };
 
   return (
@@ -97,14 +106,13 @@ export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose
           </DialogHeader>
           
           <div className="border rounded-lg p-4 bg-white">
-            {/* Render receipt inline for viewing */}
             <div style={{ 
               width: '100%', 
               fontFamily: 'monospace',
               fontSize: '12px',
               color: '#000'
             }}>
-              {/* Copy receipt content here for preview */}
+              {/* Header */}
               <div style={{ textAlign: 'center', marginBottom: '10px', borderBottom: '2px solid #000', paddingBottom: '10px' }}>
                 <h1 style={{ fontSize: '20px', fontWeight: 'bold', margin: '0 0 5px 0' }}>
                   {businessInfo?.businessName || 'Bekhal Animal Feeds'}
@@ -113,6 +121,7 @@ export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose
                 <p style={{ margin: '2px 0', fontSize: '10px' }}>{businessInfo?.businessPhone || 'Tel: +254 700 000 000'}</p>
               </div>
 
+              {/* Receipt Info */}
               <div style={{ fontSize: '10px', marginBottom: '10px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0' }}>
                   <span>Receipt #:</span>
@@ -122,8 +131,15 @@ export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose
                   <span>Cashier:</span>
                   <span>{sale?.cashierName}</span>
                 </div>
+                {sale?.customerName && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0' }}>
+                    <span>Customer:</span>
+                    <span>{sale.customerName}</span>
+                  </div>
+                )}
               </div>
 
+              {/* Items Table */}
               <table style={{ width: '100%', fontSize: '10px', marginBottom: '10px', borderTop: '1px solid #000', borderBottom: '1px solid #000', padding: '5px 0' }}>
                 <thead>
                   <tr>
@@ -137,15 +153,50 @@ export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose
                     <tr key={index}>
                       <td style={{ paddingTop: '3px' }}>{item.productName}</td>
                       <td style={{ textAlign: 'center', paddingTop: '3px' }}>{item.quantity} {item.unit}</td>
-                      <td style={{ textAlign: 'right', paddingTop: '3px' }}>KES {item.totalPrice.toLocaleString()}</td>
+                      <td style={{ textAlign: 'right', paddingTop: '3px' }}>{formatCurrency(item.totalPrice)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
 
-              <div style={{ fontSize: '12px', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', borderTop: '2px solid #000', paddingTop: '5px' }}>
+              {/* Totals */}
+              <div style={{ fontSize: '10px', marginBottom: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0' }}>
+                  <span>Subtotal:</span>
+                  <span>{formatCurrency(sale?.subtotal)}</span>
+                </div>
+                {sale?.discount > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0', color: '#16a34a' }}>
+                    <span>Discount:</span>
+                    <span>-{formatCurrency(sale.discount)}</span>
+                  </div>
+                )}
+                {sale?.transport > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0', color: '#2563eb' }}>
+                    <span>Transport:</span>
+                    <span>+{formatCurrency(sale.transport)}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Final Total */}
+              <div style={{ fontSize: '12px', fontWeight: 'bold', display: 'flex', justifyContent: 'space-between', borderTop: '2px solid #000', paddingTop: '5px', marginTop: '5px' }}>
                 <span>TOTAL:</span>
-                <span>KES {sale?.total.toLocaleString()}</span>
+                <span>{formatCurrency(sale?.total)}</span>
+              </div>
+
+              {/* Payment Info */}
+              <div style={{ fontSize: '10px', marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #000' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0' }}>
+                  <span>Payment:</span>
+                  <span style={{ fontWeight: 'bold' }}>{getPaymentMethodDisplay(sale?.paymentMethod)}</span>
+                </div>
+                {sale?.amountDue > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0', color: '#ef4444', fontWeight: 'bold' }}>
+                    <span>Amount Due:</span>
+                    <span>{formatCurrency(sale.amountDue)}</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>

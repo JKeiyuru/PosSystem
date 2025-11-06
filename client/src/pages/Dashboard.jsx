@@ -1,4 +1,4 @@
-// client/src/pages/Dashboard.jsx - Add clickable cards with dialogs
+// client/src/pages/Dashboard.jsx - Enhanced with Analytics
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -15,18 +15,20 @@ import {
   DollarSign, 
   ShoppingCart, 
   Package, 
+  AlertTriangle,
   TrendingUp,
-  AlertTriangle 
+  Users
 } from 'lucide-react';
 import { saleService } from '../services/sale.service';
 import { productService } from '../services/product.service';
 import { stockService } from '../services/stock.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import CloseOfBusinessDialog from '../components/reports/CloseOfBusinessDialog';
 import { Button } from '../components/ui/button';
 import { AlertCircle } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
+import api from '../services/api';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -35,9 +37,10 @@ export default function Dashboard() {
     lowStockCount: 0,
     stockValue: 0
   });
-  const [salesData, setSalesData] = useState([]);
   const [lowStockProducts, setLowStockProducts] = useState([]);
   const [todaysSales, setTodaysSales] = useState([]);
+  const [topProducts, setTopProducts] = useState([]);
+  const [topCustomers, setTopCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showCloseBusinessDialog, setShowCloseBusinessDialog] = useState(false);
   const [showLowStockDialog, setShowLowStockDialog] = useState(false);
@@ -58,6 +61,14 @@ export default function Dashboard() {
       const lowStockRes = await productService.getLowStock();
       const stockValueRes = await stockService.getStockValue();
 
+      // Fetch analytics data
+      const topProductsRes = await api.get('/sales/analytics/top-products', {
+        params: { limit: 5 }
+      });
+      const topCustomersRes = await api.get('/sales/analytics/top-customers', {
+        params: { limit: 5 }
+      });
+
       setStats({
         todaySales: todaySales.salesCount,
         todayRevenue: todaySales.totalSales,
@@ -67,16 +78,8 @@ export default function Dashboard() {
 
       setLowStockProducts(lowStockRes.data);
       setTodaysSales(salesList);
-
-      setSalesData([
-        { name: 'Mon', sales: 12000 },
-        { name: 'Tue', sales: 19000 },
-        { name: 'Wed', sales: 15000 },
-        { name: 'Thu', sales: 25000 },
-        { name: 'Fri', sales: 22000 },
-        { name: 'Sat', sales: 30000 },
-        { name: 'Sun', sales: 28000 },
-      ]);
+      setTopProducts(topProductsRes.data.data || []);
+      setTopCustomers(topCustomersRes.data.data || []);
 
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -166,25 +169,84 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Sales Chart */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Weekly Sales Overview</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <ResponsiveContainer width="100%" height={300}>
-            <LineChart data={salesData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Line type="monotone" dataKey="sales" stroke="#2563eb" strokeWidth={2} />
-            </LineChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Analytics Charts */}
+      <div className="grid gap-6 md:grid-cols-2">
+        {/* Top Products Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <TrendingUp className="h-5 w-5" />
+              <span>Top 5 Best Selling Products</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {topProducts.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={topProducts}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="productName" 
+                    angle={-45}
+                    textAnchor="end"
+                    height={100}
+                    interval={0}
+                  />
+                  <YAxis />
+                  <Tooltip 
+                    formatter={(value) => formatCurrency(value)}
+                    labelFormatter={(label) => `Product: ${label}`}
+                  />
+                  <Legend />
+                  <Bar dataKey="totalRevenue" fill="#2563eb" name="Revenue" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                No sales data available yet
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-      {/* Low Stock Alert - Keep visible but less prominent */}
+        {/* Top Customers Chart */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <Users className="h-5 w-5" />
+              <span>Top 5 Customers by Purchases</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {topCustomers.length > 0 ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <BarChart data={topCustomers}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="customerName" 
+                    angle={-45}
+                    textAnchor="end"
+                    height={100}
+                    interval={0}
+                  />
+                  <YAxis />
+                  <Tooltip 
+                    formatter={(value) => formatCurrency(value)}
+                    labelFormatter={(label) => `Customer: ${label}`}
+                  />
+                  <Legend />
+                  <Bar dataKey="totalPurchases" fill="#16a34a" name="Total Purchases" />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="text-center py-8 text-gray-500">
+                No customer data available yet
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Low Stock Alert */}
       {lowStockProducts.length > 0 && lowStockProducts.slice(0, 5).length > 0 && (
         <Card>
           <CardHeader>
@@ -297,7 +359,7 @@ export default function Dashboard() {
                     <TableCell className="font-medium">{sale.saleNumber}</TableCell>
                     <TableCell>{formatDateTime(sale.saleDate)}</TableCell>
                     <TableCell>{sale.customerName || 'Walk-in'}</TableCell>
-                    <TableCell className="capitalize">{sale.paymentMethod}</TableCell>
+                    <TableCell className="capitalize">{sale.paymentMethod.replace('_', ' ')}</TableCell>
                     <TableCell>{formatCurrency(sale.total)}</TableCell>
                     <TableCell>
                       <Badge variant={sale.paymentStatus === 'paid' ? 'success' : 'warning'}>

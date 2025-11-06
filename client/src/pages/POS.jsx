@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Search, Trash2, Plus, Minus, Printer, Package } from 'lucide-react';
+import { Search, Trash2, Plus, Minus, Package } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { customerService } from '../services/customer.service';
 import { saleService } from '../services/sale.service';
@@ -25,6 +25,8 @@ export default function POS() {
   const [selectedCustomer, setSelectedCustomer] = useState(null);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [amountPaid, setAmountPaid] = useState('');
+  const [discount, setDiscount] = useState('');
+  const [transport, setTransport] = useState('');
   const [loading, setLoading] = useState(false);
   const [completedSale, setCompletedSale] = useState(null);
   const [showReceipt, setShowReceipt] = useState(false);
@@ -78,37 +80,33 @@ export default function POS() {
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
 
-
-  // Add useEffect to load cart from localStorage on mount
-useEffect(() => {
-  const savedCart = localStorage.getItem('pos-cart');
-  if (savedCart) {
-    try {
-      const parsedCart = JSON.parse(savedCart);
-      setCart(parsedCart);
-    } catch (error) {
-      console.error('Error loading saved cart:', error);
+  useEffect(() => {
+    const savedCart = localStorage.getItem('pos-cart');
+    if (savedCart) {
+      try {
+        const parsedCart = JSON.parse(savedCart);
+        setCart(parsedCart);
+      } catch (error) {
+        console.error('Error loading saved cart:', error);
+      }
     }
-  }
-}, []);
+  }, []);
 
-// Add useEffect to save cart whenever it changes
-useEffect(() => {
-  if (cart.length > 0) {
-    localStorage.setItem('pos-cart', JSON.stringify(cart));
-  } else {
-    localStorage.removeItem('pos-cart');
-  }
-}, [cart]);
+  useEffect(() => {
+    if (cart.length > 0) {
+      localStorage.setItem('pos-cart', JSON.stringify(cart));
+    } else {
+      localStorage.removeItem('pos-cart');
+    }
+  }, [cart]);
+
   const handleProductClick = (product) => {
     if (product.hasMultipleUnits && product.subUnits.length > 0) {
-      // Show unit selection dialog
       setSelectedProduct(product);
       setSelectedUnit(product.baseUnit);
       setSelectedQuantity('1');
       setShowUnitDialog(true);
     } else {
-      // Add directly to cart with base unit
       addToCart(product, product.baseUnit, 1);
     }
   };
@@ -125,10 +123,8 @@ useEffect(() => {
   };
 
   const addToCart = (product, unit, quantity) => {
-    // Check if product with same unit already in cart
     const existingItem = cart.find(item => item.product === product._id && item.unit === unit);
     
-    // Calculate available quantity for this unit
     let availableQuantity;
     let unitPrice;
     
@@ -192,8 +188,15 @@ useEffect(() => {
     setCart(cart.filter(item => !(item.product === productId && item.unit === unit)));
   };
 
-  const calculateTotal = () => {
+  const calculateSubtotal = () => {
     return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+  };
+
+  const calculateTotal = () => {
+    const subtotal = calculateSubtotal();
+    const discountAmount = parseFloat(discount) || 0;
+    const transportAmount = parseFloat(transport) || 0;
+    return subtotal - discountAmount + transportAmount;
   };
 
   const handleCheckout = async () => {
@@ -222,6 +225,8 @@ useEffect(() => {
         paymentMethod,
         paymentStatus: paymentMethod === 'credit' ? 'unpaid' : (paidAmount >= total ? 'paid' : 'partial'),
         amountPaid: paidAmount,
+        discount: parseFloat(discount) || 0,
+        transport: parseFloat(transport) || 0,
         customer: selectedCustomer && selectedCustomer !== 'none' ? selectedCustomer : null,
         notes: ''
       };
@@ -230,13 +235,12 @@ useEffect(() => {
       setCompletedSale(response.data);
       setShowReceipt(true);
 
-       // Clear saved cart after successful sale
-    localStorage.removeItem('pos-cart');
-    
+      localStorage.removeItem('pos-cart');
       
-      // Reset form
       setCart([]);
       setAmountPaid('');
+      setDiscount('');
+      setTransport('');
       setSelectedCustomer(null);
       setPaymentMethod('cash');
       fetchProducts();
@@ -263,6 +267,7 @@ useEffect(() => {
     );
   };
 
+  const subtotal = calculateSubtotal();
   const total = calculateTotal();
   const change = parseFloat(amountPaid) - total;
 
@@ -323,7 +328,7 @@ useEffect(() => {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Cart Items */}
-              <div className="space-y-3 max-h-[300px] overflow-y-auto">
+              <div className="space-y-3 max-h-[250px] overflow-y-auto">
                 {cart.length === 0 ? (
                   <p className="text-center text-gray-500 py-8">Cart is empty</p>
                 ) : (
@@ -399,10 +404,34 @@ useEffect(() => {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="mpesa">M-Pesa</SelectItem>
+                    <SelectItem value="mpesa_paybill">M-Pesa (Paybill)</SelectItem>
+                    <SelectItem value="mpesa_beth">M-Pesa (Beth)</SelectItem>
+                    <SelectItem value="mpesa_martin">M-Pesa (Martin)</SelectItem>
                     <SelectItem value="credit">Credit</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+
+              {/* Discount */}
+              <div className="space-y-2">
+                <Label>Discount (Optional)</Label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={discount}
+                  onChange={(e) => setDiscount(e.target.value)}
+                />
+              </div>
+
+              {/* Transport */}
+              <div className="space-y-2">
+                <Label>Transport (Optional)</Label>
+                <Input
+                  type="number"
+                  placeholder="0.00"
+                  value={transport}
+                  onChange={(e) => setTransport(e.target.value)}
+                />
               </div>
 
               {/* Amount Paid */}
@@ -420,7 +449,26 @@ useEffect(() => {
 
               {/* Total */}
               <div className="border-t pt-4 space-y-2">
-                <div className="flex justify-between text-lg font-semibold">
+                <div className="flex justify-between text-sm">
+                  <span>Subtotal:</span>
+                  <span>{formatCurrency(subtotal)}</span>
+                </div>
+                
+                {discount && parseFloat(discount) > 0 && (
+                  <div className="flex justify-between text-sm text-green-600">
+                    <span>Discount:</span>
+                    <span>-{formatCurrency(parseFloat(discount))}</span>
+                  </div>
+                )}
+
+                {transport && parseFloat(transport) > 0 && (
+                  <div className="flex justify-between text-sm text-blue-600">
+                    <span>Transport:</span>
+                    <span>+{formatCurrency(parseFloat(transport))}</span>
+                  </div>
+                )}
+                
+                <div className="flex justify-between text-lg font-semibold border-t pt-2">
                   <span>Total:</span>
                   <span>{formatCurrency(total)}</span>
                 </div>

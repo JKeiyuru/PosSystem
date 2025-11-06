@@ -4,6 +4,17 @@ import { forwardRef } from 'react';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
 
 const Receipt = forwardRef(({ sale, businessInfo }, ref) => {
+  const getPaymentMethodDisplay = (method) => {
+    const methods = {
+      'cash': 'Cash',
+      'mpesa_paybill': 'M-Pesa (Paybill)',
+      'mpesa_beth': 'M-Pesa (Beth)',
+      'mpesa_martin': 'M-Pesa (Martin)',
+      'credit': 'Credit'
+    };
+    return methods[method] || method;
+  };
+
   return (
     <div ref={ref} className="receipt-container" style={{ 
       width: '80mm', 
@@ -66,7 +77,6 @@ const Receipt = forwardRef(({ sale, businessInfo }, ref) => {
         )}
       </div>
 
-
       {/* Items */}
       <div style={{ borderTop: '1px dashed #000', borderBottom: '1px dashed #000', padding: '10px 0', marginBottom: '10px' }}>
         <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse' }}>
@@ -105,16 +115,22 @@ const Receipt = forwardRef(({ sale, businessInfo }, ref) => {
           <span>Subtotal:</span>
           <span>{formatCurrency(sale.subtotal)}</span>
         </div>
+        {sale.discount > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0', color: '#16a34a' }}>
+            <span>Discount:</span>
+            <span>-{formatCurrency(sale.discount)}</span>
+          </div>
+        )}
+        {sale.transport > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0', color: '#2563eb' }}>
+            <span>Transport:</span>
+            <span>+{formatCurrency(sale.transport)}</span>
+          </div>
+        )}
         {sale.tax > 0 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
             <span>Tax:</span>
             <span>{formatCurrency(sale.tax)}</span>
-          </div>
-        )}
-        {sale.discount > 0 && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
-            <span>Discount:</span>
-            <span>-{formatCurrency(sale.discount)}</span>
           </div>
         )}
         <div style={{ 
@@ -135,7 +151,9 @@ const Receipt = forwardRef(({ sale, businessInfo }, ref) => {
       <div style={{ marginBottom: '10px', fontSize: '11px', borderTop: '1px dashed #000', paddingTop: '10px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
           <span>Payment Method:</span>
-          <span style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>{sale.paymentMethod}</span>
+          <span style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>
+            {getPaymentMethodDisplay(sale.paymentMethod)}
+          </span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
           <span>Amount Paid:</span>
