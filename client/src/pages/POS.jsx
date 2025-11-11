@@ -1,5 +1,5 @@
-/* eslint-disable react-hooks/exhaustive-deps */
-// client/src/pages/POS.jsx
+/* eslint-disable no-unused-vars */
+// client/src/pages/POS_Updated.jsx
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Search, Trash2, Plus, Minus, Package } from 'lucide-react';
+import { Search, Trash2, Plus, Minus, Package, Tag } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { customerService } from '../services/customer.service';
 import { saleService } from '../services/sale.service';
@@ -23,9 +23,6 @@ export default function POS() {
   const [cart, setCart] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [paymentMethod, setPaymentMethod] = useState('cash');
-  const [amountPaid, setAmountPaid] = useState('');
-  const [discount, setDiscount] = useState('');
   const [transport, setTransport] = useState('');
   const [loading, setLoading] = useState(false);
   const [completedSale, setCompletedSale] = useState(null);
@@ -35,6 +32,8 @@ export default function POS() {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedUnit, setSelectedUnit] = useState('');
   const [selectedQuantity, setSelectedQuantity] = useState('1');
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [splitPayments, setSplitPayments] = useState([{ method: 'cash', amount: '' }]);
   const receiptRef = useRef();
 
   useEffect(() => {
@@ -79,26 +78,6 @@ export default function POS() {
 
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
-
-  useEffect(() => {
-    const savedCart = localStorage.getItem('pos-cart');
-    if (savedCart) {
-      try {
-        const parsedCart = JSON.parse(savedCart);
-        setCart(parsedCart);
-      } catch (error) {
-        console.error('Error loading saved cart:', error);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    if (cart.length > 0) {
-      localStorage.setItem('pos-cart', JSON.stringify(cart));
-    } else {
-      localStorage.removeItem('pos-cart');
-    }
-  }, [cart]);
 
   const handleProductClick = (product) => {
     if (product.hasMultipleUnits && product.subUnits.length > 0) {
@@ -160,7 +139,8 @@ export default function POS() {
           unit,
           price: unitPrice,
           quantity,
-          maxQuantity: availableQuantity
+          maxQuantity: availableQuantity,
+          discount: 0
         }]);
       } else {
         alert(`Insufficient stock. Available: ${availableQuantity} ${unit}`);
@@ -184,6 +164,14 @@ export default function POS() {
     }
   };
 
+  const updateItemDiscount = (productId, unit, discount) => {
+    setCart(cart.map(item =>
+      item.product === productId && item.unit === unit
+        ? { ...item, discount: parseFloat(discount) || 0 }
+        : item
+    ));
+  };
+
   const removeFromCart = (productId, unit) => {
     setCart(cart.filter(item => !(item.product === productId && item.unit === unit)));
   };
@@ -192,23 +180,68 @@ export default function POS() {
     return cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
   };
 
-  const calculateTotal = () => {
-    const subtotal = calculateSubtotal();
-    const discountAmount = parseFloat(discount) || 0;
-    const transportAmount = parseFloat(transport) || 0;
-    return subtotal - discountAmount + transportAmount;
+  const calculateTotalDiscount = () => {
+    return cart.reduce((sum, item) => sum + (item.discount || 0), 0);
   };
 
-  const handleCheckout = async () => {
+  const calculateTotal = () => {
+    const subtotal = calculateSubtotal();
+    const totalDiscount = calculateTotalDiscount();
+    const transportAmount = parseFloat(transport) || 0;
+    return subtotal - totalDiscount + transportAmount;
+  };
+
+  const addPaymentMethod = () => {
+    setSplitPayments([...splitPayments, { method: 'cash', amount: '' }]);
+  };
+
+  const removePaymentMethod = (index) => {
+    if (splitPayments.length > 1) {
+      setSplitPayments(splitPayments.filter((_, i) => i !== index));
+    }
+  };
+
+  const updatePaymentMethod = (index, field, value) => {
+    setSplitPayments(splitPayments.map((payment, i) =>
+      i === index ? { ...payment, [field]: value } : payment
+    ));
+  };
+
+  const getTotalPaid = () => {
+    return splitPayments.reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0);
+  };
+
+  const handleInitiateCheckout = () => {
     if (cart.length === 0) {
       alert('Cart is empty');
       return;
     }
 
     const total = calculateTotal();
-    const paidAmount = parseFloat(amountPaid) || 0;
+    
+    // For credit sales, open payment dialog
+    setShowPaymentDialog(true);
+  };
 
-    if (paymentMethod !== 'credit' && paidAmount < total) {
+  const handleCheckout = async () => {
+    const total = calculateTotal();
+    const totalPaid = getTotalPaid();
+
+    // Validate payments
+    const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
+    
+    if (validPayments.length === 0) {
+      // Check if any payment method is credit
+      const hasCredit = splitPayments.some(p => p.method === 'credit');
+      if (!hasCredit) {
+        alert('Please enter payment amounts');
+        return;
+      }
+    }
+
+    // For non-credit payments, validate sufficient payment
+    const hasOnlyCredit = validPayments.length === 0 || validPayments.every(p => p.method === 'credit');
+    if (!hasOnlyCredit && totalPaid < total) {
       alert('Insufficient payment amount');
       return;
     }
@@ -216,16 +249,32 @@ export default function POS() {
     try {
       setLoading(true);
 
+      // Determine primary payment method and status
+      let primaryPaymentMethod = 'cash';
+      let paymentStatus = 'paid';
+      
+      if (validPayments.length === 1) {
+        primaryPaymentMethod = validPayments[0].method;
+        if (primaryPaymentMethod === 'credit') {
+          paymentStatus = totalPaid >= total ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
+        }
+      } else if (validPayments.length > 1) {
+        // Multiple payments - use the largest one as primary
+        const sortedPayments = [...validPayments].sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount));
+        primaryPaymentMethod = sortedPayments[0].method;
+      }
+
       const saleData = {
         items: cart.map(item => ({
           product: item.product,
           quantity: item.quantity,
-          unit: item.unit
+          unit: item.unit,
+          discount: item.discount || 0
         })),
-        paymentMethod,
-        paymentStatus: paymentMethod === 'credit' ? 'unpaid' : (paidAmount >= total ? 'paid' : 'partial'),
-        amountPaid: paidAmount,
-        discount: parseFloat(discount) || 0,
+        paymentMethod: primaryPaymentMethod,
+        splitPayments: validPayments.length > 1 ? validPayments : undefined,
+        paymentStatus,
+        amountPaid: totalPaid,
         transport: parseFloat(transport) || 0,
         customer: selectedCustomer && selectedCustomer !== 'none' ? selectedCustomer : null,
         notes: ''
@@ -234,15 +283,13 @@ export default function POS() {
       const response = await saleService.create(saleData);
       setCompletedSale(response.data);
       setShowReceipt(true);
+      setShowPaymentDialog(false);
 
-      localStorage.removeItem('pos-cart');
-      
+      // Reset form
       setCart([]);
-      setAmountPaid('');
-      setDiscount('');
       setTransport('');
       setSelectedCustomer(null);
-      setPaymentMethod('cash');
+      setSplitPayments([{ method: 'cash', amount: '' }]);
       fetchProducts();
 
     } catch (error) {
@@ -268,8 +315,10 @@ export default function POS() {
   };
 
   const subtotal = calculateSubtotal();
+  const totalDiscount = calculateTotalDiscount();
   const total = calculateTotal();
-  const change = parseFloat(amountPaid) - total;
+  const totalPaid = getTotalPaid();
+  const change = totalPaid - total;
 
   return (
     <>
@@ -309,9 +358,6 @@ export default function POS() {
                       <div className="text-xs text-gray-500">
                         Stock: {getUnitDisplay(product)}
                       </div>
-                      {product.stockStatus === 'low_stock' && (
-                        <span className="text-xs text-yellow-600">Low Stock</span>
-                      )}
                     </CardContent>
                   </Card>
                 ))}
@@ -328,46 +374,71 @@ export default function POS() {
             </CardHeader>
             <CardContent className="space-y-4">
               {/* Cart Items */}
-              <div className="space-y-3 max-h-[250px] overflow-y-auto">
+              <div className="space-y-3 max-h-[350px] overflow-y-auto">
                 {cart.length === 0 ? (
                   <p className="text-center text-gray-500 py-8">Cart is empty</p>
                 ) : (
                   cart.map((item, index) => (
-                    <div key={`${item.product}-${item.unit}-${index}`} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                      <div className="flex-1">
-                        <p className="font-medium text-sm">{item.name}</p>
-                        <p className="text-xs text-gray-600">
-                          {formatCurrency(item.price)} per {item.unit}
-                        </p>
-                      </div>
-                      <div className="flex items-center space-x-2">
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="h-8 w-8"
-                          onClick={() => updateQuantity(item.product, item.unit, item.quantity - 1)}
-                        >
-                          <Minus className="h-3 w-3" />
-                        </Button>
-                        <span className="w-12 text-center">
-                          {item.quantity} {item.unit}
-                        </span>
-                        <Button
-                          size="icon"
-                          variant="outline"
-                          className="h-8 w-8"
-                          onClick={() => updateQuantity(item.product, item.unit, item.quantity + 1)}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </Button>
+                    <div key={`${item.product}-${item.unit}-${index}`} className="p-3 bg-gray-50 rounded-lg space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1">
+                          <p className="font-medium text-sm">{item.name}</p>
+                          <p className="text-xs text-gray-600">
+                            {formatCurrency(item.price)} per {item.unit}
+                          </p>
+                        </div>
                         <Button
                           size="icon"
                           variant="destructive"
-                          className="h-8 w-8"
+                          className="h-6 w-6"
                           onClick={() => removeFromCart(item.product, item.unit)}
                         >
                           <Trash2 className="h-3 w-3" />
                         </Button>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center space-x-2">
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-6 w-6"
+                            onClick={() => updateQuantity(item.product, item.unit, item.quantity - 1)}
+                          >
+                            <Minus className="h-3 w-3" />
+                          </Button>
+                          <span className="w-16 text-center text-sm">
+                            {item.quantity} {item.unit}
+                          </span>
+                          <Button
+                            size="icon"
+                            variant="outline"
+                            className="h-6 w-6"
+                            onClick={() => updateQuantity(item.product, item.unit, item.quantity + 1)}
+                          >
+                            <Plus className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <span className="font-semibold text-sm">
+                          {formatCurrency(item.price * item.quantity)}
+                        </span>
+                      </div>
+
+                      {/* Item Discount */}
+                      <div className="flex items-center space-x-2 pt-2 border-t">
+                        <Tag className="h-3 w-3 text-green-600" />
+                        <Input
+                          type="number"
+                          placeholder="Discount"
+                          className="h-7 text-xs"
+                          value={item.discount || ''}
+                          onChange={(e) => updateItemDiscount(item.product, item.unit, e.target.value)}
+                        />
+                        {item.discount > 0 && (
+                          <span className="text-xs text-green-600 whitespace-nowrap">
+                            -{formatCurrency(item.discount)}
+                          </span>
+                        )}
                       </div>
                     </div>
                   ))
@@ -395,34 +466,6 @@ export default function POS() {
                 </Select>
               </div>
 
-              {/* Payment Method */}
-              <div className="space-y-2">
-                <Label>Payment Method</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="mpesa_paybill">M-Pesa (Paybill)</SelectItem>
-                    <SelectItem value="mpesa_beth">M-Pesa (Beth)</SelectItem>
-                    <SelectItem value="mpesa_martin">M-Pesa (Martin)</SelectItem>
-                    <SelectItem value="credit">Credit</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              {/* Discount */}
-              <div className="space-y-2">
-                <Label>Discount (Optional)</Label>
-                <Input
-                  type="number"
-                  placeholder="0.00"
-                  value={discount}
-                  onChange={(e) => setDiscount(e.target.value)}
-                />
-              </div>
-
               {/* Transport */}
               <div className="space-y-2">
                 <Label>Transport (Optional)</Label>
@@ -434,30 +477,17 @@ export default function POS() {
                 />
               </div>
 
-              {/* Amount Paid */}
-              {paymentMethod !== 'credit' && (
-                <div className="space-y-2">
-                  <Label>Amount Paid</Label>
-                  <Input
-                    type="number"
-                    placeholder="0.00"
-                    value={amountPaid}
-                    onChange={(e) => setAmountPaid(e.target.value)}
-                  />
-                </div>
-              )}
-
-              {/* Total */}
+              {/* Total Summary */}
               <div className="border-t pt-4 space-y-2">
                 <div className="flex justify-between text-sm">
                   <span>Subtotal:</span>
                   <span>{formatCurrency(subtotal)}</span>
                 </div>
                 
-                {discount && parseFloat(discount) > 0 && (
+                {totalDiscount > 0 && (
                   <div className="flex justify-between text-sm text-green-600">
-                    <span>Discount:</span>
-                    <span>-{formatCurrency(parseFloat(discount))}</span>
+                    <span>Total Discount:</span>
+                    <span>-{formatCurrency(totalDiscount)}</span>
                   </div>
                 )}
 
@@ -467,36 +497,28 @@ export default function POS() {
                     <span>+{formatCurrency(parseFloat(transport))}</span>
                   </div>
                 )}
+
+                {totalDiscount > 0 && (
+                  <div className="flex justify-between text-sm text-gray-600 border-t pt-2">
+                    <span>Price before discount:</span>
+                    <span>{formatCurrency(subtotal + (parseFloat(transport) || 0))}</span>
+                  </div>
+                )}
                 
                 <div className="flex justify-between text-lg font-semibold border-t pt-2">
-                  <span>Total:</span>
+                  <span>TOTAL:</span>
                   <span>{formatCurrency(total)}</span>
                 </div>
-                
-                {paymentMethod !== 'credit' && amountPaid && (
-                  <>
-                    <div className="flex justify-between text-sm">
-                      <span>Amount Paid:</span>
-                      <span>{formatCurrency(parseFloat(amountPaid) || 0)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Change:</span>
-                      <span className={change < 0 ? 'text-red-600' : 'text-green-600'}>
-                        {formatCurrency(Math.max(0, change))}
-                      </span>
-                    </div>
-                  </>
-                )}
               </div>
 
               {/* Checkout Button */}
               <Button
                 className="w-full"
                 size="lg"
-                onClick={handleCheckout}
+                onClick={handleInitiateCheckout}
                 disabled={loading || cart.length === 0}
               >
-                {loading ? 'Processing...' : 'Complete Sale'}
+                Proceed to Payment
               </Button>
             </CardContent>
           </Card>
@@ -545,38 +567,6 @@ export default function POS() {
               />
             </div>
 
-            {selectedUnit && selectedProduct && (
-              <div className="p-3 bg-blue-50 rounded-lg">
-                <p className="text-sm font-semibold mb-1">Price Summary:</p>
-                <div className="flex justify-between text-sm">
-                  <span>Unit Price:</span>
-                  <span className="font-semibold">
-                    {formatCurrency(
-                      selectedUnit === selectedProduct.baseUnit
-                        ? selectedProduct.sellingPrice
-                        : selectedProduct.subUnits.find(su => su.name === selectedUnit)?.pricePerUnit || 0
-                    )}
-                  </span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span>Quantity:</span>
-                  <span className="font-semibold">{selectedQuantity} {selectedUnit}</span>
-                </div>
-                <div className="flex justify-between text-sm font-bold border-t mt-1 pt-1">
-                  <span>Total:</span>
-                  <span>
-                    {formatCurrency(
-                      parseFloat(selectedQuantity || 0) * (
-                        selectedUnit === selectedProduct.baseUnit
-                          ? selectedProduct.sellingPrice
-                          : selectedProduct.subUnits.find(su => su.name === selectedUnit)?.pricePerUnit || 0
-                      )
-                    )}
-                  </span>
-                </div>
-              </div>
-            )}
-
             <div className="flex space-x-2">
               <Button
                 variant="outline"
@@ -590,6 +580,107 @@ export default function POS() {
                 onClick={handleAddToCartFromDialog}
               >
                 Add to Cart
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Payment Dialog */}
+      <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Payment Details</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <div className="flex justify-between text-lg font-bold">
+                <span>Total Amount:</span>
+                <span>{formatCurrency(total)}</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex justify-between items-center">
+                <Label>Payment Methods</Label>
+                <Button size="sm" variant="outline" onClick={addPaymentMethod}>
+                  <Plus className="h-4 w-4 mr-1" />
+                  Add Method
+                </Button>
+              </div>
+
+              {splitPayments.map((payment, index) => (
+                <div key={index} className="flex items-end space-x-2">
+                  <div className="flex-1 space-y-2">
+                    <Label>Method {splitPayments.length > 1 ? index + 1 : ''}</Label>
+                    <Select 
+                      value={payment.method} 
+                      onValueChange={(value) => updatePaymentMethod(index, 'method', value)}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="cash">Cash</SelectItem>
+                        <SelectItem value="mpesa_paybill">M-Pesa (Paybill)</SelectItem>
+                        <SelectItem value="mpesa_beth">M-Pesa (Beth)</SelectItem>
+                        <SelectItem value="mpesa_martin">M-Pesa (Martin)</SelectItem>
+                        <SelectItem value="credit">Credit</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="flex-1 space-y-2">
+                    <Label>Amount</Label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0.00"
+                      value={payment.amount}
+                      onChange={(e) => updatePaymentMethod(index, 'amount', e.target.value)}
+                      disabled={payment.method === 'credit'}
+                    />
+                  </div>
+
+                  {splitPayments.length > 1 && (
+                    <Button
+                      size="icon"
+                      variant="destructive"
+                      onClick={() => removePaymentMethod(index)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            <div className="p-4 bg-blue-50 rounded-lg space-y-2">
+              <div className="flex justify-between">
+                <span>Total Paid:</span>
+                <span className="font-bold text-green-600">{formatCurrency(totalPaid)}</span>
+              </div>
+              {totalPaid > total && (
+                <div className="flex justify-between">
+                  <span>Change:</span>
+                  <span className="font-bold text-blue-600">{formatCurrency(change)}</span>
+                </div>
+              )}
+              {totalPaid < total && (
+                <div className="flex justify-between">
+                  <span>Remaining:</span>
+                  <span className="font-bold text-red-600">{formatCurrency(total - totalPaid)}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex space-x-2">
+              <Button variant="outline" className="flex-1" onClick={() => setShowPaymentDialog(false)}>
+                Cancel
+              </Button>
+              <Button className="flex-1" onClick={handleCheckout} disabled={loading}>
+                {loading ? 'Processing...' : 'Complete Sale'}
               </Button>
             </div>
           </div>
@@ -623,6 +714,7 @@ export default function POS() {
             <ReceiptActions 
               receiptRef={receiptRef}
               sale={completedSale}
+              businessInfo={businessInfo}
               onClose={() => {
                 setShowReceipt(false);
                 setCompletedSale(null);

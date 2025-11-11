@@ -1,4 +1,4 @@
-// server/index.js
+// server/index.js - UPDATED
 
 import express from 'express';
 import mongoose from 'mongoose';
@@ -16,6 +16,8 @@ import invoiceRoutes from './routes/invoice.routes.js';
 import stockRoutes from './routes/stock.routes.js';
 import settingsRoutes from './routes/settings.routes.js';
 import dailyReportRoutes from './routes/dailyReport.routes.js';
+import debtRoutes from './routes/debt.routes.js';
+import productionRoutes from './routes/production.routes.js';
 
 // Utils
 import { sendDailyReport } from './utils/emailService.js';
@@ -39,6 +41,8 @@ app.use('/api/invoices', invoiceRoutes);
 app.use('/api/stock', stockRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/daily-reports', dailyReportRoutes);
+app.use('/api/debts', debtRoutes);
+app.use('/api/production', productionRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

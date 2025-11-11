@@ -1,4 +1,4 @@
-// client/src/components/pos/Receipt.jsx
+// client/src/components/pos/Receipt.jsx - UPDATED
 
 import { forwardRef } from 'react';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
@@ -93,6 +93,11 @@ const Receipt = forwardRef(({ sale, businessInfo }, ref) => {
               <tr key={index}>
                 <td style={{ padding: '5px 0', wordBreak: 'break-word', color: '#000' }}>
                   {item.productName}
+                  {item.discount > 0 && (
+                    <div style={{ fontSize: '10px', color: '#16a34a' }}>
+                      Discount: -{formatCurrency(item.discount)}
+                    </div>
+                  )}
                 </td>
                 <td style={{ textAlign: 'center', padding: '5px 0', color: '#000' }}>
                   {item.quantity} {item.unit}
@@ -117,7 +122,7 @@ const Receipt = forwardRef(({ sale, businessInfo }, ref) => {
         </div>
         {sale.discount > 0 && (
           <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0', color: '#16a34a' }}>
-            <span>Discount:</span>
+            <span>Total Discount:</span>
             <span>-{formatCurrency(sale.discount)}</span>
           </div>
         )}
@@ -149,16 +154,30 @@ const Receipt = forwardRef(({ sale, businessInfo }, ref) => {
 
       {/* Payment Info */}
       <div style={{ marginBottom: '10px', fontSize: '11px', borderTop: '1px dashed #000', paddingTop: '10px' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
-          <span>Payment Method:</span>
-          <span style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>
-            {getPaymentMethodDisplay(sale.paymentMethod)}
-          </span>
+        {sale.splitPayments && sale.splitPayments.length > 0 ? (
+          <>
+            <div style={{ fontWeight: 'bold', marginBottom: '5px' }}>Payment Breakdown:</div>
+            {sale.splitPayments.map((payment, index) => (
+              <div key={index} style={{ display: 'flex', justifyContent: 'space-between', margin: '3px 0 3px 10px' }}>
+                <span>{getPaymentMethodDisplay(payment.method)}:</span>
+                <span>{formatCurrency(payment.amount)}</span>
+              </div>
+            ))}
+          </>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
+            <span>Payment Method:</span>
+            <span style={{ textTransform: 'uppercase', fontWeight: 'bold' }}>
+              {getPaymentMethodDisplay(sale.paymentMethod)}
+            </span>
+          </div>
+        )}
+        
+        <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0', borderTop: '1px solid #ddd', paddingTop: '5px' }}>
+          <span>Total Paid:</span>
+          <span style={{ fontWeight: 'bold' }}>{formatCurrency(sale.amountPaid)}</span>
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
-          <span>Amount Paid:</span>
-          <span>{formatCurrency(sale.amountPaid)}</span>
-        </div>
+        
         {sale.paymentMethod !== 'credit' && sale.amountPaid >= sale.total && (
           <div style={{ display: 'flex', justifyContent: 'space-between', margin: '5px 0' }}>
             <span>Change:</span>
