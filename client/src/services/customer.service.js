@@ -1,4 +1,4 @@
-// client/src/services/customer.service.js
+// client/src/services/customer.service.js - UPDATED
 
 import api from './api';
 
@@ -30,6 +30,12 @@ export const customerService = {
 
   getWithCredit: async () => {
     const response = await api.get('/customers/credit');
+    return response.data;
+  },
+
+  // NEW: Get customer sales history
+  getSalesHistory: async (id, params) => {
+    const response = await api.get(`/customers/${id}/sales-history`, { params });
     return response.data;
   }
 };

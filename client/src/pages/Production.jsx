@@ -1,5 +1,4 @@
-/* eslint-disable no-unused-vars */
-// client/src/pages/Production.jsx
+// client/src/pages/Production.jsx - UPDATED with production service
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -14,25 +13,17 @@ import {
   TableHeader, 
   TableRow 
 } from '../components/ui/table';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle,
-  DialogFooter 
-} from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Search, Plus, Trash2, Play, Square } from 'lucide-react';
 import { productService } from '../services/product.service';
+import { productionService } from '../services/production.service';
 import { formatCurrency } from '../lib/utils';
-import api from '../services/api';
 
 export default function Production() {
   const [products, setProducts] = useState([]);
   const [teleProducts, setTeleProducts] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [ingredients, setIngredients] = useState([]);
-  const [selectedProduct, setSelectedProduct] = useState(null);
   const [productionActive, setProductionActive] = useState(false);
   const [finalProduct, setFinalProduct] = useState('');
   const [outputBags, setOutputBags] = useState('');
@@ -78,8 +69,8 @@ export default function Production() {
 
   const fetchProductionHistory = async () => {
     try {
-      const response = await api.get('/production/history');
-      setProductionHistory(response.data.data || []);
+      const response = await productionService.getHistory({ limit: 20 });
+      setProductionHistory(response.data || []);
     } catch (error) {
       console.error('Error fetching production history:', error);
     }
@@ -98,7 +89,8 @@ export default function Production() {
       quantity: '',
       unit: product.baseUnit,
       availableQuantity: product.quantity,
-      baseUnit: product.baseUnit
+      baseUnit: product.baseUnit,
+      unitPrice: product.sellingPrice
     }]);
   };
 
@@ -132,7 +124,7 @@ export default function Production() {
     }
 
     setProductionActive(true);
-    alert('Production started. Stock will be deducted from ingredients.');
+    alert('Production started! Ingredient stock will be deducted when you complete production.');
   };
 
   const endProduction = async () => {
@@ -151,7 +143,7 @@ export default function Production() {
 
       const outputQuantity = parseFloat(outputBags || 0) + (parseFloat(outputKgs || 0) / 50); // Assuming 50kg per bag
 
-      await api.post('/production/complete', {
+      await productionService.complete({
         ingredients: ingredients.map(ing => ({
           product: ing.product,
           quantity: ing.quantity,
@@ -186,9 +178,8 @@ export default function Production() {
 
   const calculateTotalCost = () => {
     return ingredients.reduce((sum, ing) => {
-      const product = products.find(p => p._id === ing.product);
-      if (product && ing.quantity) {
-        return sum + (product.sellingPrice * ing.quantity);
+      if (ing.quantity && ing.unitPrice) {
+        return sum + (ing.unitPrice * ing.quantity);
       }
       return sum;
     }, 0);
@@ -222,7 +213,7 @@ export default function Production() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="font-semibold text-blue-900">🔄 Production in Progress</p>
-                <p className="text-sm text-blue-700">Ingredients stock has been deducted</p>
+                <p className="text-sm text-blue-700">Select final product and enter output quantity below</p>
               </div>
               <div className="text-right">
                 <p className="text-sm text-blue-700">Total Cost</p>
@@ -313,6 +304,11 @@ export default function Production() {
                         <p className="text-xs text-gray-600">
                           Available: {ing.availableQuantity} {ing.unit}
                         </p>
+                        {ing.quantity && (
+                          <p className="text-xs text-blue-600 font-semibold">
+                            Cost: {formatCurrency(ing.unitPrice * ing.quantity)}
+                          </p>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -392,6 +388,7 @@ export default function Production() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Production #</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Final Product</TableHead>
                 <TableHead>Output</TableHead>
@@ -402,6 +399,7 @@ export default function Production() {
             <TableBody>
               {productionHistory.map((prod) => (
                 <TableRow key={prod._id}>
+                  <TableCell className="font-medium">{prod.productionNumber}</TableCell>
                   <TableCell>{new Date(prod.createdAt).toLocaleDateString()}</TableCell>
                   <TableCell>{prod.finalProductName}</TableCell>
                   <TableCell>{prod.outputBags} bags + {prod.outputKgs} kgs</TableCell>

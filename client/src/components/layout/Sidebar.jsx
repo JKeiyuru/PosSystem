@@ -1,4 +1,4 @@
-// client/src/components/layout/Sidebar.jsx - Fix mobile sidebar
+// client/src/components/layout/Sidebar.jsx - Updated with new pages
 
 import { Link, useLocation } from 'react-router-dom';
 import { 
@@ -9,7 +9,9 @@ import {
   FileText, 
   BarChart3,
   Settings,
-  Warehouse
+  Warehouse,
+  CreditCard,
+  Factory
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -19,6 +21,8 @@ const menuItems = [
   { icon: Package, label: 'Products', path: '/products' },
   { icon: Warehouse, label: 'Stock', path: '/stock' },
   { icon: Users, label: 'Customers', path: '/customers' },
+  { icon: CreditCard, label: 'Debts', path: '/debts' },
+  { icon: Factory, label: 'Production', path: '/production' },
   { icon: FileText, label: 'Sales', path: '/sales' },
   { icon: FileText, label: 'Invoices', path: '/invoices' },
   { icon: BarChart3, label: 'Reports', path: '/reports' },

@@ -1,4 +1,4 @@
-// client/src/pages/Debts.jsx
+// client/src/pages/Debts.jsx - UPDATED with debt service
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -24,7 +24,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { Badge } from '../components/ui/badge';
 import { Search, DollarSign, FileText, Download } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '../lib/utils';
-import api from '../services/api';
+import { debtService } from '../services/debt.service';
 
 export default function Debts() {
   const [debts, setDebts] = useState([]);
@@ -53,10 +53,11 @@ export default function Debts() {
         endDate: dateRange.endDate
       };
       
-      const response = await api.get('/debts', { params });
-      setDebts(response.data.data);
+      const response = await debtService.getAll(params);
+      setDebts(response.data);
     } catch (error) {
       console.error('Error fetching debts:', error);
+      alert('Error loading debts: ' + (error.response?.data?.message || error.message));
     }
   };
 
@@ -73,13 +74,13 @@ export default function Debts() {
 
     try {
       setLoading(true);
-      await api.post('/debts/payment', {
+      await debtService.recordPayment({
         customerId: selectedCustomer.customerId,
         amount: parseFloat(paymentAmount),
         paymentMethod
       });
 
-      alert('Payment recorded successfully');
+      alert('Payment recorded successfully! Debt payment will be counted as today\'s revenue.');
       setIsPaymentDialogOpen(false);
       setPaymentAmount('');
       setPaymentMethod('cash');
@@ -93,23 +94,28 @@ export default function Debts() {
   };
 
   const generateReport = async () => {
+    if (!dateRange.startDate || !dateRange.endDate) {
+      alert('Please select both start and end dates for the report');
+      return;
+    }
+
     try {
       const params = {
         startDate: dateRange.startDate,
         endDate: dateRange.endDate
       };
       
-      const response = await api.get('/debts/report', { params });
-      setReportData(response.data.data);
+      const response = await debtService.generateReport(params);
+      setReportData(response.data);
       setShowReport(true);
     } catch (error) {
       console.error('Error generating report:', error);
-      alert('Error generating report');
+      alert('Error generating report: ' + (error.response?.data?.message || error.message));
     }
   };
 
   const downloadReport = () => {
-    // Implementation for downloading report as PDF/Excel
+    // TODO: Implementation for downloading report as PDF/Excel
     alert('Download functionality will be implemented');
   };
 
@@ -130,7 +136,7 @@ export default function Debts() {
             <h1 className="text-3xl font-bold">Debts Management</h1>
             <p className="text-gray-600">Track and manage customer debts</p>
           </div>
-          <Button onClick={generateReport}>
+          <Button onClick={generateReport} disabled={!dateRange.startDate || !dateRange.endDate}>
             <FileText className="mr-2 h-4 w-4" />
             Generate Report
           </Button>
@@ -341,6 +347,12 @@ export default function Debts() {
                 </div>
               )}
 
+              <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                <p className="text-sm text-green-800">
+                  💡 This payment will be counted as today's revenue
+                </p>
+              </div>
+
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>
                   Cancel
@@ -419,7 +431,7 @@ export default function Debts() {
                           {formatCurrency(customer.debt)}
                         </TableCell>
                         <TableCell>{customer.salesCount}</TableCell>
-                        <TableCell>{customer.daysOutstanding}</TableCell>
+                        <TableCell>{customer.daysOutstanding} days</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

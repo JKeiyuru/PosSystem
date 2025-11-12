@@ -1,4 +1,4 @@
-// server/controllers/sale.controller.js
+// server/controllers/sale.controller.js - FULLY UPDATED
 
 import Sale from '../models/Sale.model.js';
 import Product from '../models/Product.model.js';
@@ -12,15 +12,17 @@ export const createSale = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { items, paymentMethod, paymentStatus, amountPaid, customer, notes, discount, transport } = req.body;
+    const { items, paymentMethod, splitPayments, paymentStatus, amountPaid, customer, notes, transport } = req.body;
 
     if (!items || items.length === 0) {
       throw new Error('Sale must have at least one item');
     }
 
     let subtotal = 0;
+    let totalItemDiscounts = 0;
     const saleItems = [];
 
+    // Process each item
     for (const item of items) {
       const product = await Product.findById(item.product).session(session);
       
@@ -30,6 +32,7 @@ export const createSale = async (req, res) => {
 
       let unitPrice, unit, baseUnitQuantity;
       
+      // Handle sub-units
       if (item.unit && item.unit !== product.baseUnit) {
         const subUnit = product.subUnits.find(su => su.name === item.unit);
         
@@ -58,8 +61,13 @@ export const createSale = async (req, res) => {
         }
       }
 
-      const totalPrice = unitPrice * item.quantity;
-      subtotal += totalPrice;
+      // Calculate item totals with discount
+      const itemDiscount = parseFloat(item.discount) || 0;
+      const itemSubtotal = unitPrice * item.quantity;
+      const totalPrice = itemSubtotal - itemDiscount;
+      
+      subtotal += itemSubtotal;
+      totalItemDiscounts += itemDiscount;
 
       saleItems.push({
         product: product._id,
@@ -67,10 +75,12 @@ export const createSale = async (req, res) => {
         quantity: item.quantity,
         unit,
         unitPrice,
+        discount: itemDiscount,
         totalPrice,
         baseUnitQuantity
       });
 
+      // Update product stock
       product.quantity -= baseUnitQuantity;
       
       if (product.openedBags > Math.ceil(product.quantity)) {
@@ -79,6 +89,7 @@ export const createSale = async (req, res) => {
       
       await product.save({ session });
 
+      // Record stock movement
       await StockMovement.create([{
         product: product._id,
         movementType: 'sale',
@@ -90,21 +101,43 @@ export const createSale = async (req, res) => {
       }], { session });
     }
 
-    const discountAmount = parseFloat(discount) || 0;
+    // Calculate final totals
     const transportAmount = parseFloat(transport) || 0;
-    const total = subtotal - discountAmount + transportAmount;
+    const total = subtotal - totalItemDiscounts + transportAmount;
 
-    const paidAmount = parseFloat(amountPaid) || 0;
+    // Handle split payments
+    let paidAmount = 0;
+    let finalPaymentMethod = paymentMethod;
+    let paymentBreakdown = null;
+
+    if (splitPayments && splitPayments.length > 0) {
+      // Filter valid payments
+      paymentBreakdown = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
+      paidAmount = paymentBreakdown.reduce((sum, p) => sum + parseFloat(p.amount), 0);
+      
+      // Use the largest payment method as the primary
+      if (paymentBreakdown.length > 0) {
+        const sortedPayments = [...paymentBreakdown].sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount));
+        finalPaymentMethod = sortedPayments[0].method;
+      }
+    } else {
+      paidAmount = parseFloat(amountPaid) || 0;
+    }
+
     let calculatedAmountDue = total - paidAmount;
     if (calculatedAmountDue < 0) calculatedAmountDue = 0;
 
+    // Determine payment status
     let finalPaymentStatus;
-    if (paymentMethod === 'credit') {
-      finalPaymentStatus = paidAmount >= total ? 'paid' : (paidAmount > 0 ? 'partial' : 'unpaid');
+    if (finalPaymentMethod === 'credit' || paidAmount === 0) {
+      finalPaymentStatus = 'unpaid';
+    } else if (paidAmount >= total) {
+      finalPaymentStatus = 'paid';
     } else {
-      finalPaymentStatus = paidAmount >= total ? 'paid' : 'partial';
+      finalPaymentStatus = 'partial';
     }
 
+    // Get cashier and customer info
     const cashierName = req.user.name;
     let customerName = null;
     
@@ -115,13 +148,15 @@ export const createSale = async (req, res) => {
       }
     }
 
+    // Create sale
     const sale = await Sale.create([{
       items: saleItems,
       subtotal,
-      discount: discountAmount,
+      discount: totalItemDiscounts,
       transport: transportAmount,
       total,
-      paymentMethod,
+      paymentMethod: finalPaymentMethod,
+      splitPayments: paymentBreakdown,
       paymentStatus: finalPaymentStatus,
       amountPaid: paidAmount,
       amountDue: calculatedAmountDue,
@@ -133,6 +168,7 @@ export const createSale = async (req, res) => {
       isCreditPayment: false
     }], { session });
 
+    // Update customer totals
     if (customer) {
       const customerDoc = await Customer.findById(customer).session(session);
       if (customerDoc) {
@@ -146,6 +182,7 @@ export const createSale = async (req, res) => {
 
     await session.commitTransaction();
 
+    // Return populated sale
     const populatedSale = await Sale.findById(sale[0]._id)
       .populate('items.product')
       .populate('customer')
@@ -184,6 +221,7 @@ export const updateSalePayment = async (req, res) => {
 
     const payment = parseFloat(amountPaid);
     
+    // Create payment transaction
     const paymentTransaction = await PaymentTransaction.create([{
       customer: sale.customer,
       customerName: sale.customerName,
@@ -198,6 +236,7 @@ export const updateSalePayment = async (req, res) => {
       notes: `Payment for sale ${sale.saleNumber}`
     }], { session });
 
+    // Update sale
     sale.amountPaid += payment;
     sale.amountDue = Math.max(0, sale.total - sale.amountPaid);
     
@@ -210,6 +249,7 @@ export const updateSalePayment = async (req, res) => {
 
     await sale.save({ session });
 
+    // Update customer credit
     if (sale.customer) {
       const customer = await Customer.findById(sale.customer).session(session);
       if (customer) {
@@ -326,6 +366,7 @@ export const getDailySales = async (req, res) => {
       }
     });
 
+    // NEW REVENUE CALCULATION LOGIC
     // Calculate revenue: NON-credit sales (paid amount) + credit payments
     let totalRevenue = 0;
     
@@ -340,18 +381,30 @@ export const getDailySales = async (req, res) => {
     const creditPayments = payments.reduce((sum, pmt) => sum + pmt.amount, 0);
     totalRevenue += creditPayments;
 
-    // Calculate by payment method
+    // Calculate by payment method (including credit payments)
     const totalCash = sales.filter(s => s.paymentMethod === 'cash')
       .reduce((sum, sale) => sum + sale.amountPaid, 0) + 
       payments.filter(p => p.paymentMethod === 'cash')
       .reduce((sum, pmt) => sum + pmt.amount, 0);
 
-    const totalMpesa = sales.filter(s => s.paymentMethod.startsWith('mpesa'))
+    const totalMpesaPaybill = sales.filter(s => s.paymentMethod === 'mpesa_paybill')
       .reduce((sum, sale) => sum + sale.amountPaid, 0) +
-      payments.filter(p => p.paymentMethod.startsWith('mpesa'))
+      payments.filter(p => p.paymentMethod === 'mpesa_paybill')
       .reduce((sum, pmt) => sum + pmt.amount, 0);
 
-    // Credit is the amount taken on credit (not paid)
+    const totalMpesaBeth = sales.filter(s => s.paymentMethod === 'mpesa_beth')
+      .reduce((sum, sale) => sum + sale.amountPaid, 0) +
+      payments.filter(p => p.paymentMethod === 'mpesa_beth')
+      .reduce((sum, pmt) => sum + pmt.amount, 0);
+
+    const totalMpesaMartin = sales.filter(s => s.paymentMethod === 'mpesa_martin')
+      .reduce((sum, sale) => sum + sale.amountPaid, 0) +
+      payments.filter(p => p.paymentMethod === 'mpesa_martin')
+      .reduce((sum, pmt) => sum + pmt.amount, 0);
+
+    const totalMpesa = totalMpesaPaybill + totalMpesaBeth + totalMpesaMartin;
+
+    // Credit is the amount taken on credit (not paid) - NOT REVENUE
     const totalCredit = sales.filter(s => s.paymentMethod === 'credit')
       .reduce((sum, sale) => sum + sale.total, 0);
 
@@ -361,12 +414,16 @@ export const getDailySales = async (req, res) => {
         sales,
         payments,
         summary: {
-          totalSales: totalRevenue, // This is the actual revenue
+          totalSales: totalRevenue, // Actual revenue (non-credit sales + credit payments)
           totalCash,
           totalMpesa,
-          totalCredit, // This is credit given (not revenue)
+          totalMpesaPaybill,
+          totalMpesaBeth,
+          totalMpesaMartin,
+          totalCredit, // Credit given (NOT revenue)
           creditPaymentsToday: creditPayments, // This is included in totalSales
-          salesCount: sales.length
+          salesCount: sales.length,
+          paymentsCount: payments.length
         }
       }
     });
@@ -469,12 +526,14 @@ export const deleteSale = async (req, res) => {
       });
     }
 
+    // Restore stock for all items
     for (const item of sale.items) {
       const product = await Product.findById(item.product).session(session);
       if (product) {
         product.quantity += item.baseUnitQuantity || item.quantity;
         await product.save({ session });
 
+        // Record stock movement
         await StockMovement.create([{
           product: product._id,
           movementType: 'adjustment',
@@ -487,6 +546,7 @@ export const deleteSale = async (req, res) => {
       }
     }
 
+    // Update customer totals
     if (sale.customer) {
       const customer = await Customer.findById(sale.customer).session(session);
       if (customer) {

@@ -1,4 +1,4 @@
-// server/models/Sale.model.js
+// server/models/Sale.model.js - FULLY UPDATED
 
 import mongoose from 'mongoose';
 
@@ -23,6 +23,12 @@ const saleItemSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
+  // NEW: Item-level discount
+  discount: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
   totalPrice: {
     type: Number,
     required: true,
@@ -31,6 +37,20 @@ const saleItemSchema = new mongoose.Schema({
   baseUnitQuantity: {
     type: Number,
     required: true,
+  }
+});
+
+// NEW: Split payment schema
+const splitPaymentSchema = new mongoose.Schema({
+  method: {
+    type: String,
+    enum: ['cash', 'mpesa_paybill', 'mpesa_beth', 'mpesa_martin', 'credit'],
+    required: true
+  },
+  amount: {
+    type: Number,
+    required: true,
+    min: 0
   }
 });
 
@@ -49,6 +69,7 @@ const saleSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: 0
+    // This is now the TOTAL of all item discounts
   },
   transport: {
     type: Number,
@@ -70,6 +91,8 @@ const saleSchema = new mongoose.Schema({
     enum: ['cash', 'mpesa_paybill', 'mpesa_beth', 'mpesa_martin', 'credit'],
     required: true
   },
+  // NEW: Split payments array
+  splitPayments: [splitPaymentSchema],
   paymentStatus: {
     type: String,
     enum: ['paid', 'partial', 'unpaid'],
