@@ -18,6 +18,7 @@ import settingsRoutes from './routes/settings.routes.js';
 import dailyReportRoutes from './routes/dailyReport.routes.js';
 import debtRoutes from './routes/debt.routes.js';
 import productionRoutes from './routes/production.routes.js';
+import productionFormulaRoutes from './routes/productionFormula.routes.js';
 
 // Utils
 import { sendDailyReport } from './utils/emailService.js';
@@ -43,6 +44,7 @@ app.use('/api/settings', settingsRoutes);
 app.use('/api/daily-reports', dailyReportRoutes);
 app.use('/api/debts', debtRoutes);
 app.use('/api/production', productionRoutes);
+app.use('/api/production-formulas', productionFormulaRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

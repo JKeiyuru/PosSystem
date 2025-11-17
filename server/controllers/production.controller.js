@@ -1,8 +1,10 @@
-// server/controllers/production.controller.js
+// server/controllers/production.controller.js - FULLY UPDATED
 
 import Production from '../models/Production.model.js';
+import ProductionFormula from '../models/ProductionFormula.model.js';
 import Product from '../models/Product.model.js';
 import StockMovement from '../models/StockMovement.model.js';
+import Sale from '../models/Sale.model.js';
 import mongoose from 'mongoose';
 
 export const completeProduction = async (req, res) => {
@@ -10,14 +12,33 @@ export const completeProduction = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { ingredients, finalProduct, outputQuantity, outputBags, outputKgs } = req.body;
+    const { 
+      type,
+      ingredients, 
+      finalProduct, 
+      customerName,
+      customOutputName,
+      outputQuantity, 
+      outputBags, 
+      outputKgs,
+      sellImmediately,
+      notes
+    } = req.body;
 
     if (!ingredients || ingredients.length === 0) {
       throw new Error('Production must have at least one ingredient');
     }
 
-    if (!finalProduct || !outputQuantity) {
-      throw new Error('Final product and output quantity are required');
+    if (type === 'standard' && !finalProduct) {
+      throw new Error('Final product is required for standard production');
+    }
+
+    if (type === 'custom' && (!customerName || !customOutputName)) {
+      throw new Error('Customer name and output name are required for custom production');
+    }
+
+    if (!outputQuantity) {
+      throw new Error('Output quantity is required');
     }
 
     let totalCost = 0;
@@ -36,7 +57,9 @@ export const completeProduction = async (req, res) => {
         throw new Error(`Insufficient stock for ${product.name}. Available: ${product.quantity} ${product.baseUnit}`);
       }
 
-      const cost = product.sellingPrice * ing.quantity;
+      // Use buying or selling price based on user choice
+      const priceToUse = ing.useBuyingPrice ? product.buyingPrice : product.sellingPrice;
+      const cost = priceToUse * ing.quantity;
       totalCost += cost;
 
       processedIngredients.push({
@@ -44,7 +67,8 @@ export const completeProduction = async (req, res) => {
         productName: product.name,
         quantity: ing.quantity,
         unit: ing.unit,
-        unitCost: product.sellingPrice
+        unitCost: priceToUse,
+        usedBuyingPrice: ing.useBuyingPrice || false
       });
 
       // Deduct stock
@@ -59,47 +83,65 @@ export const completeProduction = async (req, res) => {
         quantity: -ing.quantity,
         previousQuantity,
         newQuantity: product.quantity,
-        reference: `Used in production`,
+        reference: type === 'custom' 
+          ? `Used in custom production for ${customerName}` 
+          : `Used in production`,
         performedBy: req.user.id
       }], { session });
     }
 
-    // Add stock to final product
-    const finalProductDoc = await Product.findById(finalProduct).session(session);
-    if (!finalProductDoc) {
-      throw new Error('Final product not found');
-    }
-
-    const previousFinalQuantity = finalProductDoc.quantity;
-    finalProductDoc.quantity += outputQuantity;
-    await finalProductDoc.save({ session });
-
-    // Record stock movement for final product
-    await StockMovement.create([{
-      product: finalProductDoc._id,
-      movementType: 'production',
-      quantity: outputQuantity,
-      previousQuantity: previousFinalQuantity,
-      newQuantity: finalProductDoc.quantity,
-      reference: `Produced from ingredients`,
-      performedBy: req.user.id
-    }], { session });
-
-    // Create production record
     const costPerUnit = totalCost / outputQuantity;
 
-    const production = await Production.create([{
+    // Handle different production types
+    let productionData = {
+      type: type || 'standard',
       ingredients: processedIngredients,
-      finalProduct: finalProductDoc._id,
-      finalProductName: finalProductDoc.name,
       outputQuantity,
       outputBags: outputBags || 0,
       outputKgs: outputKgs || 0,
       totalCost,
       costPerUnit,
       performedBy: req.user.id,
-      performedByName: req.user.name
-    }], { session });
+      performedByName: req.user.name,
+      notes: notes || ''
+    };
+
+    if (type === 'custom') {
+      // Custom production (customer combination)
+      productionData.customerName = customerName;
+      productionData.customOutputName = customOutputName;
+      productionData.soldImmediately = sellImmediately || false;
+      
+      // Don't add to any product stock for custom production
+      
+    } else {
+      // Standard production (TELE feeds)
+      const finalProductDoc = await Product.findById(finalProduct).session(session);
+      if (!finalProductDoc) {
+        throw new Error('Final product not found');
+      }
+
+      productionData.finalProduct = finalProductDoc._id;
+      productionData.finalProductName = finalProductDoc.name;
+
+      // Add stock to final product
+      const previousFinalQuantity = finalProductDoc.quantity;
+      finalProductDoc.quantity += outputQuantity;
+      await finalProductDoc.save({ session });
+
+      // Record stock movement for final product
+      await StockMovement.create([{
+        product: finalProductDoc._id,
+        movementType: 'production',
+        quantity: outputQuantity,
+        previousQuantity: previousFinalQuantity,
+        newQuantity: finalProductDoc.quantity,
+        reference: `Produced from ingredients`,
+        performedBy: req.user.id
+      }], { session });
+    }
+
+    const production = await Production.create([productionData], { session });
 
     await session.commitTransaction();
 
@@ -119,9 +161,114 @@ export const completeProduction = async (req, res) => {
   }
 };
 
+// Helper function for executing formulas
+export const completeProductionFromFormula = async (req, res, productionData, formula) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    let totalCost = 0;
+    const processedIngredients = [];
+
+    // Process each ingredient
+    for (const ing of productionData.ingredients) {
+      const product = await Product.findById(ing.product).session(session);
+      
+      if (!product) {
+        throw new Error(`Product ${ing.product} not found`);
+      }
+
+      if (product.quantity < ing.quantity) {
+        throw new Error(`Insufficient stock for ${product.name}`);
+      }
+
+      const priceToUse = ing.useBuyingPrice ? product.buyingPrice : product.sellingPrice;
+      const cost = priceToUse * ing.quantity;
+      totalCost += cost;
+
+      processedIngredients.push({
+        product: product._id,
+        productName: product.name,
+        quantity: ing.quantity,
+        unit: ing.unit,
+        unitCost: priceToUse,
+        usedBuyingPrice: ing.useBuyingPrice || false
+      });
+
+      const previousQuantity = product.quantity;
+      product.quantity -= ing.quantity;
+      await product.save({ session });
+
+      await StockMovement.create([{
+        product: product._id,
+        movementType: 'production',
+        quantity: -ing.quantity,
+        previousQuantity,
+        newQuantity: product.quantity,
+        reference: `Formula: ${formula.name}`,
+        performedBy: req.user.id
+      }], { session });
+    }
+
+    const costPerUnit = totalCost / productionData.outputQuantity;
+
+    const finalProductionData = {
+      ...productionData,
+      ingredients: processedIngredients,
+      totalCost,
+      costPerUnit,
+      performedBy: req.user.id,
+      performedByName: req.user.name
+    };
+
+    // Handle standard vs custom
+    if (productionData.type === 'standard' && productionData.finalProduct) {
+      const finalProductDoc = await Product.findById(productionData.finalProduct).session(session);
+      if (finalProductDoc) {
+        const previousQuantity = finalProductDoc.quantity;
+        finalProductDoc.quantity += productionData.outputQuantity;
+        await finalProductDoc.save({ session });
+
+        await StockMovement.create([{
+          product: finalProductDoc._id,
+          movementType: 'production',
+          quantity: productionData.outputQuantity,
+          previousQuantity,
+          newQuantity: finalProductDoc.quantity,
+          reference: `Formula: ${formula.name}`,
+          performedBy: req.user.id
+        }], { session });
+      }
+    }
+
+    const production = await Production.create([finalProductionData], { session });
+
+    // Update formula usage stats
+    formula.lastUsed = new Date();
+    formula.usageCount += 1;
+    await formula.save({ session });
+
+    await session.commitTransaction();
+
+    res.status(201).json({
+      success: true,
+      message: 'Production completed successfully using formula',
+      data: production[0]
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
 export const getProductionHistory = async (req, res) => {
   try {
-    const { startDate, endDate, limit = 50 } = req.query;
+    const { startDate, endDate, type, limit = 50 } = req.query;
 
     let query = {};
 
@@ -131,8 +278,13 @@ export const getProductionHistory = async (req, res) => {
       if (endDate) query.productionDate.$lte = new Date(endDate);
     }
 
+    if (type) {
+      query.type = type;
+    }
+
     const productions = await Production.find(query)
       .populate('finalProduct')
+      .populate('formula')
       .populate('ingredients.product')
       .populate('performedBy', 'name')
       .sort({ createdAt: -1 })
@@ -154,6 +306,7 @@ export const getProductionById = async (req, res) => {
   try {
     const production = await Production.findById(req.params.id)
       .populate('finalProduct')
+      .populate('formula')
       .populate('ingredients.product')
       .populate('performedBy', 'name email');
 
@@ -178,7 +331,7 @@ export const getProductionById = async (req, res) => {
 
 export const getProductionStats = async (req, res) => {
   try {
-    const { startDate, endDate } = req.query;
+    const { startDate, endDate, type } = req.query;
 
     let matchQuery = {};
 
@@ -186,6 +339,10 @@ export const getProductionStats = async (req, res) => {
       matchQuery.productionDate = {};
       if (startDate) matchQuery.productionDate.$gte = new Date(startDate);
       if (endDate) matchQuery.productionDate.$lte = new Date(endDate);
+    }
+
+    if (type) {
+      matchQuery.type = type;
     }
 
     const stats = await Production.aggregate([
@@ -203,7 +360,7 @@ export const getProductionStats = async (req, res) => {
 
     // Get most produced products
     const topProducts = await Production.aggregate([
-      { $match: matchQuery },
+      { $match: { ...matchQuery, type: 'standard' } },
       {
         $group: {
           _id: '$finalProduct',
@@ -217,6 +374,21 @@ export const getProductionStats = async (req, res) => {
       { $limit: 10 }
     ]);
 
+    // Get custom production stats
+    const customStats = await Production.aggregate([
+      { $match: { ...matchQuery, type: 'custom' } },
+      {
+        $group: {
+          _id: '$customerName',
+          customerName: { $first: '$customerName' },
+          totalProductions: { $sum: 1 },
+          totalCost: { $sum: '$totalCost' }
+        }
+      },
+      { $sort: { totalProductions: -1 } },
+      { $limit: 10 }
+    ]);
+
     res.json({
       success: true,
       data: {
@@ -226,7 +398,8 @@ export const getProductionStats = async (req, res) => {
           totalOutput: 0,
           avgCostPerUnit: 0
         },
-        topProducts
+        topProducts,
+        topCustomers: customStats
       }
     });
   } catch (error) {

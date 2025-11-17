@@ -1,4 +1,4 @@
-// server/models/StockMovement.model.js
+// server/models/StockMovement.model.js - FIXED
 
 import mongoose from 'mongoose';
 
@@ -10,7 +10,7 @@ const stockMovementSchema = new mongoose.Schema({
   },
   movementType: {
     type: String,
-    enum: ['restock', 'sale', 'adjustment', 'return', 'damaged'],
+    enum: ['restock', 'sale', 'adjustment', 'return', 'damaged', 'production'], // Added 'production'
     required: true
   },
   quantity: {

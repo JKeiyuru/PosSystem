@@ -1,4 +1,4 @@
-// server/models/Production.model.js
+// server/models/Production.model.js - UPDATED
 
 import mongoose from 'mongoose';
 
@@ -15,7 +15,11 @@ const productionIngredientSchema = new mongoose.Schema({
     min: 0
   },
   unit: String,
-  unitCost: Number
+  unitCost: Number,
+  usedBuyingPrice: {
+    type: Boolean,
+    default: false
+  }
 });
 
 const productionSchema = new mongoose.Schema({
@@ -23,13 +27,29 @@ const productionSchema = new mongoose.Schema({
     type: String,
     unique: true
   },
+  type: {
+    type: String,
+    enum: ['standard', 'custom'],
+    default: 'standard'
+  },
+  // Formula reference if using saved formula
+  formula: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'ProductionFormula'
+  },
   ingredients: [productionIngredientSchema],
+  
+  // For standard production (TELE feeds)
   finalProduct: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Product',
-    required: true
+    ref: 'Product'
   },
   finalProductName: String,
+  
+  // For custom production (customer combinations)
+  customerName: String,
+  customOutputName: String,
+  
   outputQuantity: {
     type: Number,
     required: true,
@@ -48,6 +68,17 @@ const productionSchema = new mongoose.Schema({
     default: 0
   },
   costPerUnit: Number,
+  
+  // If sold immediately (for custom combinations)
+  soldImmediately: {
+    type: Boolean,
+    default: false
+  },
+  saleReference: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Sale'
+  },
+  
   performedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
