@@ -1,4 +1,5 @@
-// client/src/pages/Production.jsx - FULLY ENHANCED with Multi-Unit & Direct Sales
+/* eslint-disable no-unused-vars */
+// client/src/pages/Production.jsx - FULLY ENHANCED with Correct Sub-Unit Pricing & Formula Sales
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -145,6 +146,8 @@ export default function Production() {
       baseUnit: product.baseUnit,
       sellingPrice: product.sellingPrice,
       buyingPrice: product.buyingPrice,
+      currentSellingPrice: product.sellingPrice,
+      currentBuyingPrice: product.buyingPrice,
       useBuyingPrice: false,
       hasMultipleUnits: product.hasMultipleUnits,
       subUnits: product.subUnits || []
@@ -160,7 +163,6 @@ export default function Production() {
   const updateIngredientUnit = (productId, unit) => {
     setIngredients(ingredients.map(ing => {
       if (ing.product === productId) {
-        // Update available quantity and prices based on unit
         let availableInUnit = ing.availableQuantity;
         let unitSellingPrice = ing.sellingPrice;
         let unitBuyingPrice = ing.buyingPrice;
@@ -170,7 +172,6 @@ export default function Production() {
           if (subUnit) {
             availableInUnit = Math.floor(ing.availableQuantity * subUnit.conversionRate);
             unitSellingPrice = subUnit.pricePerUnit;
-            // Calculate buying price for sub-unit (proportional)
             unitBuyingPrice = (ing.buyingPrice * subUnit.conversionRate);
           }
         }
@@ -179,7 +180,8 @@ export default function Production() {
           unit, 
           availableInUnit,
           currentSellingPrice: unitSellingPrice,
-          currentBuyingPrice: unitBuyingPrice
+          currentBuyingPrice: unitBuyingPrice,
+          useBuyingPrice: unit === ing.baseUnit ? ing.useBuyingPrice : false
         };
       }
       return ing;
@@ -207,7 +209,6 @@ export default function Production() {
       return;
     }
 
-    // Validate stock
     for (const ing of ingredients) {
       const availableInUnit = ing.availableInUnit || ing.availableQuantity;
       if (ing.quantity > availableInUnit) {
@@ -242,7 +243,6 @@ export default function Production() {
       return;
     }
 
-    // For custom production, show payment dialog if selling immediately
     if (productionType === 'custom' && sellImmediately) {
       setShowPaymentDialog(true);
     } else {
@@ -416,20 +416,70 @@ export default function Production() {
     }
   };
 
+  const loadFormula = (formula) => {
+    setSelectedFormula(formula);
+    setShowExecuteFormulaDialog(true);
+    setOutputBags(formula.defaultOutputBags?.toString() || '');
+    setOutputKgs(formula.defaultOutputKgs?.toString() || '');
+    
+    if (formula.type === 'custom') {
+      setCustomerName(formula.customerName || '');
+      setCustomOutputName(formula.customOutputName || '');
+      setSellingPrice('');
+      setSellImmediately(false);
+    }
+  };
+
   const executeFormula = async () => {
     if (!selectedFormula) return;
 
+    if (selectedFormula.type === 'custom') {
+      if (!sellingPrice || parseFloat(sellingPrice) <= 0) {
+        alert('Please enter a valid selling price for the custom combination');
+        return;
+      }
+      
+      if (sellImmediately) {
+        setShowPaymentDialog(true);
+        return;
+      }
+    }
+
+    await executeFormulaProduction();
+  };
+
+  const executeFormulaProduction = async (saleData = null) => {
     try {
       setLoading(true);
 
-      await api.post(`/production-formulas/${selectedFormula._id}/execute`, {
+      const payload = {
         outputBags: outputBags || selectedFormula.defaultOutputBags,
         outputKgs: outputKgs || selectedFormula.defaultOutputKgs
-      });
+      };
 
-      alert('Formula executed successfully!');
+      if (selectedFormula.type === 'custom') {
+        payload.sellingPrice = parseFloat(sellingPrice);
+        payload.sellImmediately = sellImmediately;
+        
+        if (sellImmediately && saleData) {
+          payload.saleData = saleData;
+        }
+      }
+
+      const response = await api.post(`/production-formulas/${selectedFormula._id}/execute`, payload);
+
+      if (sellImmediately && response.data.sale) {
+        setCompletedSale(response.data.sale);
+        setShowReceipt(true);
+        alert('Formula executed and sale recorded successfully!');
+      } else {
+        alert('Formula executed successfully!');
+      }
+      
       setShowExecuteFormulaDialog(false);
+      setShowPaymentDialog(false);
       setSelectedFormula(null);
+      setSplitPayments([{ method: 'cash', amount: '' }]);
       
       fetchProducts();
       fetchAllProducts();
@@ -442,11 +492,49 @@ export default function Production() {
     }
   };
 
-  const loadFormula = (formula) => {
-    setSelectedFormula(formula);
-    setShowExecuteFormulaDialog(true);
-    setOutputBags(formula.defaultOutputBags?.toString() || '');
-    setOutputKgs(formula.defaultOutputKgs?.toString() || '');
+  const handleCompleteFormulaSale = () => {
+    const totalOutput = parseFloat(outputBags || selectedFormula.defaultOutputBags || 0) + 
+                       (parseFloat(outputKgs || selectedFormula.defaultOutputKgs || 0) / 50);
+    const total = parseFloat(sellingPrice) * totalOutput;
+    const totalPaid = getTotalPaid();
+
+    const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
+    
+    if (validPayments.length === 0) {
+      const hasCredit = splitPayments.some(p => p.method === 'credit');
+      if (!hasCredit) {
+        alert('Please enter payment amounts');
+        return;
+      }
+    }
+
+    const hasOnlyCredit = validPayments.length === 0 || validPayments.every(p => p.method === 'credit');
+    if (!hasOnlyCredit && totalPaid < total) {
+      alert('Insufficient payment amount');
+      return;
+    }
+
+    let primaryPaymentMethod = 'cash';
+    let paymentStatus = 'paid';
+    
+    if (validPayments.length === 1) {
+      primaryPaymentMethod = validPayments[0].method;
+      if (primaryPaymentMethod === 'credit') {
+        paymentStatus = totalPaid >= total ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
+      }
+    } else if (validPayments.length > 1) {
+      const sortedPayments = [...validPayments].sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount));
+      primaryPaymentMethod = sortedPayments[0].method;
+    }
+
+    const saleData = {
+      paymentMethod: primaryPaymentMethod,
+      splitPayments: validPayments.length > 1 ? validPayments : undefined,
+      paymentStatus,
+      amountPaid: totalPaid
+    };
+
+    executeFormulaProduction(saleData);
   };
 
   const resetProduction = () => {
@@ -463,10 +551,17 @@ export default function Production() {
     setSplitPayments([{ method: 'cash', amount: '' }]);
   };
 
+  const getCurrentPrice = (ing) => {
+    if (ing.unit === ing.baseUnit) {
+      return ing.useBuyingPrice ? ing.buyingPrice : ing.sellingPrice;
+    }
+    return ing.currentSellingPrice || ing.sellingPrice;
+  };
+
   const calculateTotalCost = () => {
     return ingredients.reduce((sum, ing) => {
       if (ing.quantity) {
-        const price = ing.useBuyingPrice ? ing.buyingPrice : ing.sellingPrice;
+        const price = getCurrentPrice(ing);
         return sum + (price * ing.quantity);
       }
       return sum;
@@ -543,7 +638,6 @@ export default function Production() {
         </TabsList>
 
         <TabsContent value="manual" className="space-y-6">
-          {/* Production Type Selection */}
           <Card>
             <CardHeader>
               <CardTitle>Production Type</CardTitle>
@@ -604,7 +698,6 @@ export default function Production() {
           )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Available Products */}
             <div className="lg:col-span-2 space-y-4">
               <Card>
                 <CardHeader>
@@ -651,7 +744,6 @@ export default function Production() {
               </Card>
             </div>
 
-            {/* Selected Ingredients & Output */}
             <div className="space-y-4">
               <Card>
                 <CardHeader>
@@ -678,7 +770,6 @@ export default function Production() {
                             )}
                           </div>
                           <div className="space-y-2">
-                            {/* Unit Selection */}
                             {ing.hasMultipleUnits && ing.subUnits.length > 0 ? (
                               <Select 
                                 value={ing.unit}
@@ -706,7 +797,6 @@ export default function Production() {
                               <p className="text-xs text-gray-600">Unit: {ing.unit}</p>
                             )}
 
-                            {/* Quantity */}
                             <Input
                               type="number"
                               step="0.01"
@@ -719,28 +809,39 @@ export default function Production() {
                               Available: {getAvailableInUnit(ing)} {ing.unit}
                             </p>
                             
-                            {/* Price Type Selector */}
-                            <Select 
-                              value={ing.useBuyingPrice ? 'buying' : 'selling'}
-                              onValueChange={(value) => updateIngredientPriceType(ing.product, value === 'buying')}
-                              disabled={productionActive}
-                            >
-                              <SelectTrigger className="h-8">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="selling">
-                                  Selling: {formatCurrency(ing.sellingPrice)}
-                                </SelectItem>
-                                <SelectItem value="buying">
-                                  Buying: {formatCurrency(ing.buyingPrice)}
-                                </SelectItem>
-                              </SelectContent>
-                            </Select>
+                            {ing.unit === ing.baseUnit ? (
+                              <Select 
+                                value={ing.useBuyingPrice ? 'buying' : 'selling'}
+                                onValueChange={(value) => updateIngredientPriceType(ing.product, value === 'buying')}
+                                disabled={productionActive}
+                              >
+                                <SelectTrigger className="h-8">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  <SelectItem value="selling">
+                                    Selling: {formatCurrency(ing.currentSellingPrice || ing.sellingPrice)}
+                                  </SelectItem>
+                                  <SelectItem value="buying">
+                                    Buying: {formatCurrency(ing.currentBuyingPrice || ing.buyingPrice)}
+                                  </SelectItem>
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <div className="p-2 bg-gray-100 rounded">
+                                <p className="text-xs text-gray-600">Unit Price (Selling)</p>
+                                <p className="text-sm font-semibold">
+                                  {formatCurrency(ing.currentSellingPrice || ing.sellingPrice)}
+                                </p>
+                                <p className="text-xs text-gray-500 mt-1">
+                                  Sub-units use selling price only
+                                </p>
+                              </div>
+                            )}
                             
                             {ing.quantity && (
                               <p className="text-xs text-blue-600 font-semibold">
-                                Cost: {formatCurrency((ing.useBuyingPrice ? ing.buyingPrice : ing.sellingPrice) * ing.quantity)}
+                                Cost: {formatCurrency(getCurrentPrice(ing) * ing.quantity)}
                               </p>
                             )}
                           </div>
@@ -796,7 +897,6 @@ export default function Production() {
                             />
                           </div>
                           
-                          {/* Sell Immediately Checkbox */}
                           <div className="flex items-center space-x-2 p-3 bg-green-50 rounded-lg">
                             <input
                               type="checkbox"
@@ -928,7 +1028,6 @@ export default function Production() {
         </TabsContent>
       </Tabs>
 
-      {/* Production History */}
       <Card>
         <CardHeader>
           <CardTitle>Recent Production History</CardTitle>
@@ -983,7 +1082,6 @@ export default function Production() {
         </CardContent>
       </Card>
 
-      {/* Save Formula Dialog */}
       <Dialog open={showSaveFormulaDialog} onOpenChange={setShowSaveFormulaDialog}>
         <DialogContent>
           <DialogHeader>
@@ -1013,18 +1111,38 @@ export default function Production() {
         </DialogContent>
       </Dialog>
 
-      {/* Execute Formula Dialog */}
       <Dialog open={showExecuteFormulaDialog} onOpenChange={setShowExecuteFormulaDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle>Execute Formula: {selectedFormula?.name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="p-4 bg-gray-50 rounded-lg">
-              <h4 className="font-semibold mb-2">Ingredients:</h4>
+              <div className="flex justify-between mb-2">
+                <h4 className="font-semibold">Type:</h4>
+                <span className="text-sm">
+                  {selectedFormula?.type === 'standard' ? 'Standard (TELE)' : 'Custom Combination'}
+                </span>
+              </div>
+              {selectedFormula?.type === 'custom' && (
+                <>
+                  <div className="flex justify-between mb-2">
+                    <h4 className="font-semibold">Customer:</h4>
+                    <span className="text-sm">{selectedFormula?.customerName}</span>
+                  </div>
+                  <div className="flex justify-between mb-2">
+                    <h4 className="font-semibold">Product:</h4>
+                    <span className="text-sm">{selectedFormula?.customOutputName}</span>
+                  </div>
+                </>
+              )}
+              <h4 className="font-semibold mt-3 mb-2">Ingredients:</h4>
               {selectedFormula?.ingredients.map((ing, idx) => (
-                <div key={idx} className="text-sm">
-                  • {ing.productName}: {ing.quantity} {ing.unit}
+                <div key={idx} className="text-sm flex justify-between">
+                  <span>• {ing.productName}: {ing.quantity} {ing.unit}</span>
+                  <span className="text-gray-600">
+                    {ing.useBuyingPrice ? '(Buying Price)' : '(Selling Price)'}
+                  </span>
                 </div>
               ))}
             </div>
@@ -1047,6 +1165,49 @@ export default function Production() {
                 />
               </div>
             </div>
+
+            {selectedFormula?.type === 'custom' && (
+              <>
+                <div className="space-y-2">
+                  <Label>Selling Price (per unit) *</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="Enter selling price"
+                    value={sellingPrice}
+                    onChange={(e) => setSellingPrice(e.target.value)}
+                  />
+                </div>
+
+                <div className="flex items-center space-x-2 p-3 bg-green-50 rounded-lg">
+                  <input
+                    type="checkbox"
+                    id="formulaSellImmediately"
+                    checked={sellImmediately}
+                    onChange={(e) => setSellImmediately(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  <Label htmlFor="formulaSellImmediately" className="cursor-pointer">
+                    <div className="flex items-center">
+                      <ShoppingCart className="h-4 w-4 mr-2 text-green-600" />
+                      <span>Sell Immediately</span>
+                    </div>
+                    <p className="text-xs text-gray-600">
+                      Complete sale after production
+                    </p>
+                  </Label>
+                </div>
+
+                {sellingPrice && (
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <p className="text-sm font-semibold mb-1">Expected Revenue:</p>
+                    <p className="text-lg font-bold text-blue-600">
+                      {formatCurrency(parseFloat(sellingPrice) * (parseFloat(outputBags || 0) + (parseFloat(outputKgs || 0) / 50)))}
+                    </p>
+                  </div>
+                )}
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowExecuteFormulaDialog(false)}>
@@ -1059,7 +1220,6 @@ export default function Production() {
         </DialogContent>
       </Dialog>
 
-      {/* Payment Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -1073,7 +1233,11 @@ export default function Production() {
                 <span>{formatCurrency(totalRevenue)}</span>
               </div>
               <div className="text-sm text-gray-600 mt-1">
-                {customerName} - {customOutputName}
+                {selectedFormula ? (
+                  <>Formula: {selectedFormula.name} - {customerName || selectedFormula.customerName}</>
+                ) : (
+                  <>{customerName} - {customOutputName}</>
+                )}
               </div>
             </div>
 
@@ -1155,7 +1319,11 @@ export default function Production() {
               <Button variant="outline" className="flex-1" onClick={() => setShowPaymentDialog(false)}>
                 Cancel
               </Button>
-              <Button className="flex-1" onClick={handleCompleteSale} disabled={loading}>
+              <Button 
+                className="flex-1" 
+                onClick={selectedFormula ? handleCompleteFormulaSale : handleCompleteSale} 
+                disabled={loading}
+              >
                 {loading ? 'Processing...' : 'Complete Sale'}
               </Button>
             </div>
@@ -1163,7 +1331,6 @@ export default function Production() {
         </DialogContent>
       </Dialog>
 
-      {/* Receipt Dialog */}
       <Dialog open={showReceipt} onOpenChange={setShowReceipt}>
         <DialogContent className="max-w-md">
           <DialogHeader>
