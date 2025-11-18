@@ -222,39 +222,43 @@ export default function Production() {
   };
 
   const handleInitiateCompletion = () => {
-    if (productionType === 'standard' && !finalProduct) {
-      alert('Please select the final TELE product');
-      return;
-    }
-
-    if (productionType === 'custom') {
+    if (productionType === 'standard') {
+      // Standard TELE production
+      if (!finalProduct) {
+        alert('Please select the final TELE product');
+        return;
+      }
+      if (!outputBags && !outputKgs) {
+        alert('Please enter the output quantity (bags and/or kgs) for inventory');
+        return;
+      }
+      // Standard production - just add to inventory
+      endProduction();
+    } else {
+      // Custom combination
       if (!customerName || !customOutputName) {
-        alert('Please enter customer name and output product name');
+        alert('Please enter customer name and product name for the custom combination');
         return;
       }
       if (!sellingPrice || parseFloat(sellingPrice) <= 0) {
         alert('Please enter a valid selling price for the custom combination');
         return;
       }
-    }
-
-    if (!outputBags && !outputKgs) {
-      alert('Please enter the output quantity (bags and/or kgs)');
-      return;
-    }
-
-    if (productionType === 'custom' && sellImmediately) {
+      
+      const minPrice = calculateTotalCost();
+      if (parseFloat(sellingPrice) < minPrice) {
+        alert(`Selling price cannot be less than production cost (${formatCurrency(minPrice)})`);
+        return;
+      }
+      
+      // Custom combinations are always sold immediately
       setShowPaymentDialog(true);
-    } else {
-      endProduction();
     }
   };
 
   const endProduction = async (saleData = null) => {
     try {
       setLoading(true);
-
-      const outputQuantity = parseFloat(outputBags || 0) + (parseFloat(outputKgs || 0) / 50);
 
       const productionData = {
         type: productionType,
@@ -263,33 +267,39 @@ export default function Production() {
           quantity: ing.quantity,
           unit: ing.unit,
           useBuyingPrice: ing.useBuyingPrice
-        })),
-        outputQuantity,
-        outputBags: parseFloat(outputBags || 0),
-        outputKgs: parseFloat(outputKgs || 0)
+        }))
       };
 
       if (productionType === 'standard') {
+        // Standard TELE production - add to inventory
+        const outputQuantity = parseFloat(outputBags || 0) + (parseFloat(outputKgs || 0) / 50);
         productionData.finalProduct = finalProduct;
+        productionData.outputQuantity = outputQuantity;
+        productionData.outputBags = parseFloat(outputBags || 0);
+        productionData.outputKgs = parseFloat(outputKgs || 0);
       } else {
+        // Custom combination - direct sale (no inventory)
         productionData.customerName = customerName;
         productionData.customOutputName = customOutputName;
         productionData.sellingPrice = parseFloat(sellingPrice);
-        productionData.sellImmediately = sellImmediately;
+        productionData.outputQuantity = 1; // One custom batch
+        productionData.outputBags = 0;
+        productionData.outputKgs = 0;
+        productionData.sellImmediately = true; // Always true for custom
         
-        if (sellImmediately && saleData) {
+        if (saleData) {
           productionData.saleData = saleData;
         }
       }
 
       const response = await productionService.complete(productionData);
 
-      if (sellImmediately && response.data.sale) {
+      if (productionType === 'custom' && response.data.sale) {
         setCompletedSale(response.data.sale);
         setShowReceipt(true);
-        alert('Production completed and sale recorded successfully!');
+        alert('Custom production completed and sold successfully!');
       } else {
-        alert('Production completed successfully!');
+        alert('Production completed successfully! Product added to inventory.');
       }
       
       resetProduction();
@@ -305,7 +315,7 @@ export default function Production() {
   };
 
   const handleCompleteSale = () => {
-    const total = parseFloat(sellingPrice) * (parseFloat(outputBags || 0) + (parseFloat(outputKgs || 0) / 50));
+    const total = parseFloat(sellingPrice); // Selling price is the total for custom batch
     const totalPaid = getTotalPaid();
 
     const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
@@ -419,14 +429,18 @@ export default function Production() {
   const loadFormula = (formula) => {
     setSelectedFormula(formula);
     setShowExecuteFormulaDialog(true);
-    setOutputBags(formula.defaultOutputBags?.toString() || '');
-    setOutputKgs(formula.defaultOutputKgs?.toString() || '');
     
-    if (formula.type === 'custom') {
+    if (formula.type === 'standard') {
+      // Standard TELE - need output for inventory
+      setOutputBags(formula.defaultOutputBags?.toString() || '');
+      setOutputKgs(formula.defaultOutputKgs?.toString() || '');
+    } else {
+      // Custom - need selling price, no output bags/kgs
       setCustomerName(formula.customerName || '');
       setCustomOutputName(formula.customOutputName || '');
       setSellingPrice('');
-      setSellImmediately(false);
+      setOutputBags('');
+      setOutputKgs('');
     }
   };
 
@@ -434,46 +448,52 @@ export default function Production() {
     if (!selectedFormula) return;
 
     if (selectedFormula.type === 'custom') {
+      // Custom formula - validate selling price and go to payment
       if (!sellingPrice || parseFloat(sellingPrice) <= 0) {
         alert('Please enter a valid selling price for the custom combination');
         return;
       }
       
-      if (sellImmediately) {
-        setShowPaymentDialog(true);
+      // Custom always sells immediately
+      setShowPaymentDialog(true);
+    } else {
+      // Standard TELE formula - validate output and execute (add to inventory)
+      if (!outputBags && !outputKgs) {
+        alert('Please enter output quantity for inventory');
         return;
       }
+      await executeFormulaProduction();
     }
-
-    await executeFormulaProduction();
   };
 
   const executeFormulaProduction = async (saleData = null) => {
     try {
       setLoading(true);
 
-      const payload = {
-        outputBags: outputBags || selectedFormula.defaultOutputBags,
-        outputKgs: outputKgs || selectedFormula.defaultOutputKgs
-      };
+      const payload = {};
 
-      if (selectedFormula.type === 'custom') {
+      if (selectedFormula.type === 'standard') {
+        // Standard TELE - add to inventory
+        payload.outputBags = outputBags || selectedFormula.defaultOutputBags;
+        payload.outputKgs = outputKgs || selectedFormula.defaultOutputKgs;
+      } else {
+        // Custom - direct sale
         payload.sellingPrice = parseFloat(sellingPrice);
-        payload.sellImmediately = sellImmediately;
+        payload.sellImmediately = true;
         
-        if (sellImmediately && saleData) {
+        if (saleData) {
           payload.saleData = saleData;
         }
       }
 
       const response = await api.post(`/production-formulas/${selectedFormula._id}/execute`, payload);
 
-      if (sellImmediately && response.data.sale) {
+      if (selectedFormula.type === 'custom' && response.data.sale) {
         setCompletedSale(response.data.sale);
         setShowReceipt(true);
-        alert('Formula executed and sale recorded successfully!');
+        alert('Formula executed and sale completed successfully!');
       } else {
-        alert('Formula executed successfully!');
+        alert('Formula executed successfully! Product added to inventory.');
       }
       
       setShowExecuteFormulaDialog(false);
@@ -493,9 +513,7 @@ export default function Production() {
   };
 
   const handleCompleteFormulaSale = () => {
-    const totalOutput = parseFloat(outputBags || selectedFormula.defaultOutputBags || 0) + 
-                       (parseFloat(outputKgs || selectedFormula.defaultOutputKgs || 0) / 50);
-    const total = parseFloat(sellingPrice) * totalOutput;
+    const total = parseFloat(sellingPrice); // Total price for custom batch
     const totalPaid = getTotalPaid();
 
     const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
@@ -570,8 +588,7 @@ export default function Production() {
 
   const calculateTotalRevenue = () => {
     if (productionType === 'custom' && sellingPrice) {
-      const outputQuantity = parseFloat(outputBags || 0) + (parseFloat(outputKgs || 0) / 50);
-      return parseFloat(sellingPrice) * outputQuantity;
+      return parseFloat(sellingPrice); // Total price for the custom batch
     }
     return 0;
   };
@@ -867,11 +884,45 @@ export default function Production() {
                               ))}
                             </SelectContent>
                           </Select>
+                          
+                          <div className="grid grid-cols-2 gap-2 mt-4">
+                            <div className="space-y-2">
+                              <Label>Output (Bags)</Label>
+                              <Input
+                                type="number"
+                                step="1"
+                                placeholder="0"
+                                value={outputBags}
+                                onChange={(e) => setOutputBags(e.target.value)}
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <Label>Output (Kgs)</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="0"
+                                value={outputKgs}
+                                onChange={(e) => setOutputKgs(e.target.value)}
+                              />
+                            </div>
+                          </div>
+                          
+                          <div className="p-3 bg-blue-50 rounded-lg mt-2">
+                            <p className="text-sm font-semibold mb-1">Total Output for Inventory:</p>
+                            <p className="text-lg font-bold text-blue-600">
+                              {parseFloat(outputBags || 0)} bags + {parseFloat(outputKgs || 0)} kgs
+                            </p>
+                            <p className="text-xs text-gray-600 mt-2">
+                              This will be added to the product's stock. Sell from POS later.
+                            </p>
+                          </div>
                         </div>
                       ) : (
                         <>
                           <div className="space-y-2">
-                            <Label>Customer Name</Label>
+                            <Label>Customer Name *</Label>
                             <Input
                               placeholder="Enter customer name"
                               value={customerName}
@@ -879,7 +930,7 @@ export default function Production() {
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label>Product Name</Label>
+                            <Label>Custom Product Name *</Label>
                             <Input
                               placeholder="e.g., John's Custom Mix"
                               value={customOutputName}
@@ -887,79 +938,55 @@ export default function Production() {
                             />
                           </div>
                           <div className="space-y-2">
-                            <Label>Selling Price (per unit)</Label>
+                            <Label>Selling Price (Total) *</Label>
                             <Input
                               type="number"
                               step="0.01"
-                              placeholder="Enter selling price"
+                              placeholder="Enter total selling price"
                               value={sellingPrice}
                               onChange={(e) => setSellingPrice(e.target.value)}
                             />
+                            <p className="text-xs text-gray-600">
+                              Minimum: {formatCurrency(calculateTotalCost())} (production cost)
+                            </p>
                           </div>
                           
-                          <div className="flex items-center space-x-2 p-3 bg-green-50 rounded-lg">
-                            <input
-                              type="checkbox"
-                              id="sellImmediately"
-                              checked={sellImmediately}
-                              onChange={(e) => setSellImmediately(e.target.checked)}
-                              className="h-4 w-4"
-                            />
-                            <Label htmlFor="sellImmediately" className="cursor-pointer">
-                              <div className="flex items-center">
-                                <ShoppingCart className="h-4 w-4 mr-2 text-green-600" />
-                                <span>Sell Immediately</span>
-                              </div>
-                              <p className="text-xs text-gray-600">
-                                Complete sale after production
-                              </p>
-                            </Label>
+                          <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                            <div className="flex items-center mb-2">
+                              <ShoppingCart className="h-4 w-4 mr-2 text-green-600" />
+                              <p className="text-sm font-semibold text-green-800">Direct Sale</p>
+                            </div>
+                            <p className="text-xs text-gray-700">
+                              Custom combinations are sold immediately and won't be added to inventory.
+                            </p>
                           </div>
+
+                          {sellingPrice && (
+                            <div className="p-3 bg-blue-50 rounded-lg">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <p className="text-sm text-gray-600">Production Cost:</p>
+                                  <p className="text-lg font-bold text-gray-900">
+                                    {formatCurrency(calculateTotalCost())}
+                                  </p>
+                                </div>
+                                <div>
+                                  <p className="text-sm text-gray-600">Selling Price:</p>
+                                  <p className="text-lg font-bold text-blue-600">
+                                    {formatCurrency(parseFloat(sellingPrice))}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="border-t mt-2 pt-2">
+                                <p className="text-sm text-gray-600">Profit:</p>
+                                <p className="text-xl font-bold text-purple-600">
+                                  {formatCurrency(calculateProfit())}
+                                </p>
+                              </div>
+                            </div>
+                          )}
                         </>
                       )}
-
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="space-y-2">
-                          <Label>Output (Bags)</Label>
-                          <Input
-                            type="number"
-                            step="1"
-                            placeholder="0"
-                            value={outputBags}
-                            onChange={(e) => setOutputBags(e.target.value)}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Output (Kgs)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="0"
-                            value={outputKgs}
-                            onChange={(e) => setOutputKgs(e.target.value)}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="p-3 bg-green-50 rounded-lg">
-                        <p className="text-sm font-semibold mb-1">Total Output:</p>
-                        <p className="text-lg font-bold text-green-600">
-                          {parseFloat(outputBags || 0)} bags + {parseFloat(outputKgs || 0)} kgs
-                        </p>
-                        {productionType === 'custom' && sellingPrice && (
-                          <>
-                            <p className="text-sm font-semibold mb-1 mt-2">Expected Revenue:</p>
-                            <p className="text-lg font-bold text-blue-600">
-                              {formatCurrency(calculateTotalRevenue())}
-                            </p>
-                            <p className="text-sm font-semibold mb-1 mt-2">Expected Profit:</p>
-                            <p className="text-lg font-bold text-purple-600">
-                              {formatCurrency(calculateProfit())}
-                            </p>
-                          </>
-                        )}
-                      </div>
                     </div>
                   )}
 
@@ -1147,62 +1174,60 @@ export default function Production() {
               ))}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Output Bags</Label>
-                <Input
-                  type="number"
-                  value={outputBags}
-                  onChange={(e) => setOutputBags(e.target.value)}
-                />
+            {selectedFormula?.type === 'standard' ? (
+              // Standard TELE - ask for output
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Output Bags *</Label>
+                  <Input
+                    type="number"
+                    value={outputBags}
+                    onChange={(e) => setOutputBags(e.target.value)}
+                    placeholder="Bags to add to inventory"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Output Kgs</Label>
+                  <Input
+                    type="number"
+                    value={outputKgs}
+                    onChange={(e) => setOutputKgs(e.target.value)}
+                    placeholder="Additional kgs"
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label>Output Kgs</Label>
-                <Input
-                  type="number"
-                  value={outputKgs}
-                  onChange={(e) => setOutputKgs(e.target.value)}
-                />
-              </div>
-            </div>
-
-            {selectedFormula?.type === 'custom' && (
+            ) : (
+              // Custom - ask for selling price
               <>
                 <div className="space-y-2">
-                  <Label>Selling Price (per unit) *</Label>
+                  <Label>Selling Price (Total) *</Label>
                   <Input
                     type="number"
                     step="0.01"
-                    placeholder="Enter selling price"
+                    placeholder="Enter total selling price"
                     value={sellingPrice}
                     onChange={(e) => setSellingPrice(e.target.value)}
                   />
+                  <p className="text-xs text-gray-600">
+                    Price for the entire custom batch
+                  </p>
                 </div>
 
-                <div className="flex items-center space-x-2 p-3 bg-green-50 rounded-lg">
-                  <input
-                    type="checkbox"
-                    id="formulaSellImmediately"
-                    checked={sellImmediately}
-                    onChange={(e) => setSellImmediately(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  <Label htmlFor="formulaSellImmediately" className="cursor-pointer">
-                    <div className="flex items-center">
-                      <ShoppingCart className="h-4 w-4 mr-2 text-green-600" />
-                      <span>Sell Immediately</span>
-                    </div>
-                    <p className="text-xs text-gray-600">
-                      Complete sale after production
-                    </p>
-                  </Label>
+                <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                  <div className="flex items-center mb-2">
+                    <ShoppingCart className="h-4 w-4 mr-2 text-green-600" />
+                    <p className="text-sm font-semibold text-green-800">Direct Sale</p>
+                  </div>
+                  <p className="text-xs text-gray-700">
+                    Custom combinations are sold immediately and won't be added to inventory.
+                  </p>
                 </div>
 
                 {sellingPrice && (
                   <div className="p-3 bg-blue-50 rounded-lg">
-                    <p className="text-sm font-semibold mb-1">Expected Revenue:</p>
+                    <p className="text-sm font-semibold mb-1">Selling Price:</p>
                     <p className="text-lg font-bold text-blue-600">
-                      {formatCurrency(parseFloat(sellingPrice) * (parseFloat(outputBags || 0) + (parseFloat(outputKgs || 0) / 50)))}
+                      {formatCurrency(parseFloat(sellingPrice))}
                     </p>
                   </div>
                 )}
@@ -1214,7 +1239,7 @@ export default function Production() {
               Cancel
             </Button>
             <Button onClick={executeFormula} disabled={loading}>
-              {loading ? 'Executing...' : 'Execute Production'}
+              {loading ? 'Executing...' : selectedFormula?.type === 'standard' ? 'Add to Inventory' : 'Proceed to Payment'}
             </Button>
           </DialogFooter>
         </DialogContent>

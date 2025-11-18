@@ -40,8 +40,14 @@ export const completeProduction = async (req, res) => {
       throw new Error('Customer name and output name are required for custom production');
     }
 
-    if (!outputQuantity) {
-      throw new Error('Output quantity is required');
+    // For standard production, output is required
+    if (type === 'standard' && !outputQuantity) {
+      throw new Error('Output quantity is required for standard production');
+    }
+
+    // For custom production, selling price is required
+    if (type === 'custom' && (!sellingPrice || parseFloat(sellingPrice) <= 0)) {
+      throw new Error('Selling price is required for custom production');
     }
 
     let totalCost = 0;
@@ -58,7 +64,6 @@ export const completeProduction = async (req, res) => {
       // Convert quantity to base units
       let baseUnitQuantity = ing.quantity;
       if (ing.unit !== product.baseUnit) {
-        // Calculate base unit quantity from sub-unit
         const subUnit = product.subUnits.find(su => su.name === ing.unit);
         if (!subUnit) {
           throw new Error(`Unit ${ing.unit} not found for ${product.name}`);
@@ -71,8 +76,17 @@ export const completeProduction = async (req, res) => {
         throw new Error(`Insufficient stock for ${product.name}. Available: ${product.quantity} ${product.baseUnit}`);
       }
 
-      // Use buying or selling price based on user choice
-      const priceToUse = ing.useBuyingPrice ? product.buyingPrice : product.sellingPrice;
+      // Determine price to use
+      let priceToUse;
+      if (ing.unit === product.baseUnit) {
+        // Base unit - allow choice
+        priceToUse = ing.useBuyingPrice ? product.buyingPrice : product.sellingPrice;
+      } else {
+        // Sub-unit - always use selling price
+        const subUnit = product.subUnits.find(su => su.name === ing.unit);
+        priceToUse = subUnit ? subUnit.pricePerUnit : product.sellingPrice;
+      }
+      
       const cost = priceToUse * ing.quantity;
       totalCost += cost;
 
@@ -105,13 +119,13 @@ export const completeProduction = async (req, res) => {
       }], { session });
     }
 
-    const costPerUnit = totalCost / outputQuantity;
+    const costPerUnit = outputQuantity && outputQuantity > 0 ? totalCost / outputQuantity : totalCost;
 
     // Handle different production types
     let productionData = {
       type: type || 'standard',
       ingredients: processedIngredients,
-      outputQuantity,
+      outputQuantity: outputQuantity || 1,
       outputBags: outputBags || 0,
       outputKgs: outputKgs || 0,
       totalCost,
@@ -124,21 +138,21 @@ export const completeProduction = async (req, res) => {
     let createdSale = null;
 
     if (type === 'custom') {
-      // Custom production (customer combination)
+      // Custom production - direct sale
       productionData.customerName = customerName;
       productionData.customOutputName = customOutputName;
       productionData.sellingPrice = parseFloat(sellingPrice);
-      productionData.totalRevenue = parseFloat(sellingPrice) * outputQuantity;
-      productionData.profit = productionData.totalRevenue - totalCost;
-      productionData.soldImmediately = sellImmediately || false;
+      productionData.totalRevenue = parseFloat(sellingPrice); // Total price for the batch
+      productionData.profit = parseFloat(sellingPrice) - totalCost;
+      productionData.soldImmediately = true; // Always true for custom
+      productionData.outputQuantity = 1; // One custom batch
 
-      // If selling immediately, create a sale
-      if (sellImmediately && saleData) {
-        const saleTotal = parseFloat(sellingPrice) * outputQuantity;
+      // Create sale for custom production
+      if (saleData) {
+        const saleTotal = parseFloat(sellingPrice);
         const amountPaid = saleData.amountPaid || 0;
         const amountDue = Math.max(0, saleTotal - amountPaid);
 
-        // Determine payment status
         let paymentStatus = 'paid';
         if (saleData.paymentMethod === 'credit' || amountPaid === 0) {
           paymentStatus = 'unpaid';
@@ -155,7 +169,6 @@ export const completeProduction = async (req, res) => {
         if (existingCustomer) {
           customer = existingCustomer;
         } else {
-          // Create new customer
           const newCustomer = await Customer.create([{
             name: customerName,
             phone: 'N/A',
@@ -168,14 +181,14 @@ export const completeProduction = async (req, res) => {
         // Create sale
         const sale = await Sale.create([{
           items: [{
-            product: null, // Custom product, no product reference
+            product: null,
             productName: `${customerName} - ${customOutputName}`,
-            quantity: 1, // Selling as one unit (the entire custom batch)
+            quantity: 1,
             unit: 'batch',
             unitPrice: parseFloat(sellingPrice),
             discount: 0,
             totalPrice: parseFloat(sellingPrice),
-            baseUnitQuantity: outputQuantity
+            baseUnitQuantity: 1
           }],
           subtotal: parseFloat(sellingPrice),
           discount: 0,
@@ -191,7 +204,7 @@ export const completeProduction = async (req, res) => {
           customerName: customer.name,
           cashier: req.user.id,
           cashierName: req.user.name,
-          notes: `From custom production: ${customOutputName} (${outputBags} bags + ${outputKgs} kgs)`,
+          notes: `From custom production: ${customOutputName}`,
           isCreditPayment: false
         }], { session });
 
@@ -207,7 +220,7 @@ export const completeProduction = async (req, res) => {
       }
       
     } else {
-      // Standard production (TELE feeds)
+      // Standard production (TELE feeds) - add to inventory
       const finalProductDoc = await Product.findById(finalProduct).session(session);
       if (!finalProductDoc) {
         throw new Error('Final product not found');
