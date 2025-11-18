@@ -170,18 +170,18 @@ export const completeProduction = async (req, res) => {
           items: [{
             product: null, // Custom product, no product reference
             productName: `${customerName} - ${customOutputName}`,
-            quantity: outputQuantity,
-            unit: 'bags',
+            quantity: 1, // Selling as one unit (the entire custom batch)
+            unit: 'batch',
             unitPrice: parseFloat(sellingPrice),
             discount: 0,
-            totalPrice: saleTotal,
+            totalPrice: parseFloat(sellingPrice),
             baseUnitQuantity: outputQuantity
           }],
-          subtotal: saleTotal,
+          subtotal: parseFloat(sellingPrice),
           discount: 0,
           transport: 0,
           tax: 0,
-          total: saleTotal,
+          total: parseFloat(sellingPrice),
           paymentMethod: saleData.paymentMethod,
           splitPayments: saleData.splitPayments,
           paymentStatus,
@@ -191,7 +191,7 @@ export const completeProduction = async (req, res) => {
           customerName: customer.name,
           cashier: req.user.id,
           cashierName: req.user.name,
-          notes: `From custom production: ${customOutputName}`,
+          notes: `From custom production: ${customOutputName} (${outputBags} bags + ${outputKgs} kgs)`,
           isCreditPayment: false
         }], { session });
 

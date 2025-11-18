@@ -1,4 +1,4 @@
-// server/models/Sale.model.js - FULLY UPDATED
+// server/models/Sale.model.js - UPDATED with Optional Product
 
 import mongoose from 'mongoose';
 
@@ -6,9 +6,12 @@ const saleItemSchema = new mongoose.Schema({
   product: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product',
+    required: false // Made optional for custom production sales
+  },
+  productName: {
+    type: String,
     required: true
   },
-  productName: String,
   quantity: {
     type: Number,
     required: true,
@@ -23,7 +26,6 @@ const saleItemSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
-  // NEW: Item-level discount
   discount: {
     type: Number,
     default: 0,
@@ -36,11 +38,10 @@ const saleItemSchema = new mongoose.Schema({
   },
   baseUnitQuantity: {
     type: Number,
-    required: true,
+    required: false, // Optional for custom products
   }
 });
 
-// NEW: Split payment schema
 const splitPaymentSchema = new mongoose.Schema({
   method: {
     type: String,
@@ -69,7 +70,6 @@ const saleSchema = new mongoose.Schema({
     type: Number,
     default: 0,
     min: 0
-    // This is now the TOTAL of all item discounts
   },
   transport: {
     type: Number,
@@ -91,7 +91,6 @@ const saleSchema = new mongoose.Schema({
     enum: ['cash', 'mpesa_paybill', 'mpesa_beth', 'mpesa_martin', 'credit'],
     required: true
   },
-  // NEW: Split payments array
   splitPayments: [splitPaymentSchema],
   paymentStatus: {
     type: String,
@@ -124,7 +123,6 @@ const saleSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
-  // Track if this is a credit payment (not initial sale)
   isCreditPayment: {
     type: Boolean,
     default: false

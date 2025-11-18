@@ -160,15 +160,27 @@ export default function Production() {
   const updateIngredientUnit = (productId, unit) => {
     setIngredients(ingredients.map(ing => {
       if (ing.product === productId) {
-        // Update available quantity based on unit
+        // Update available quantity and prices based on unit
         let availableInUnit = ing.availableQuantity;
+        let unitSellingPrice = ing.sellingPrice;
+        let unitBuyingPrice = ing.buyingPrice;
+        
         if (unit !== ing.baseUnit) {
           const subUnit = ing.subUnits.find(su => su.name === unit);
           if (subUnit) {
             availableInUnit = Math.floor(ing.availableQuantity * subUnit.conversionRate);
+            unitSellingPrice = subUnit.pricePerUnit;
+            // Calculate buying price for sub-unit (proportional)
+            unitBuyingPrice = (ing.buyingPrice * subUnit.conversionRate);
           }
         }
-        return { ...ing, unit, availableInUnit };
+        return { 
+          ...ing, 
+          unit, 
+          availableInUnit,
+          currentSellingPrice: unitSellingPrice,
+          currentBuyingPrice: unitBuyingPrice
+        };
       }
       return ing;
     }));
