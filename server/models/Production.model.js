@@ -1,4 +1,4 @@
-// server/models/Production.model.js - UPDATED
+// server/models/Production.model.js - ENHANCED
 
 import mongoose from 'mongoose';
 
@@ -15,6 +15,7 @@ const productionIngredientSchema = new mongoose.Schema({
     min: 0
   },
   unit: String,
+  baseUnitQuantity: Number, // Quantity in base units
   unitCost: Number,
   usedBuyingPrice: {
     type: Boolean,
@@ -49,6 +50,19 @@ const productionSchema = new mongoose.Schema({
   // For custom production (customer combinations)
   customerName: String,
   customOutputName: String,
+  sellingPrice: {
+    type: Number,
+    min: 0
+  },
+  totalRevenue: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  profit: {
+    type: Number,
+    default: 0
+  },
   
   outputQuantity: {
     type: Number,

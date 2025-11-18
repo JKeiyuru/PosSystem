@@ -1,10 +1,11 @@
-// server/controllers/production.controller.js - FULLY UPDATED
+// server/controllers/production.controller.js - ENHANCED with Direct Sales
 
 import Production from '../models/Production.model.js';
 import ProductionFormula from '../models/ProductionFormula.model.js';
 import Product from '../models/Product.model.js';
 import StockMovement from '../models/StockMovement.model.js';
 import Sale from '../models/Sale.model.js';
+import Customer from '../models/Customer.model.js';
 import mongoose from 'mongoose';
 
 export const completeProduction = async (req, res) => {
@@ -21,7 +22,9 @@ export const completeProduction = async (req, res) => {
       outputQuantity, 
       outputBags, 
       outputKgs,
+      sellingPrice,
       sellImmediately,
+      saleData,
       notes
     } = req.body;
 
@@ -44,7 +47,7 @@ export const completeProduction = async (req, res) => {
     let totalCost = 0;
     const processedIngredients = [];
 
-    // Process each ingredient - deduct stock
+    // Process each ingredient - deduct stock with multi-unit support
     for (const ing of ingredients) {
       const product = await Product.findById(ing.product).session(session);
       
@@ -52,8 +55,19 @@ export const completeProduction = async (req, res) => {
         throw new Error(`Product ${ing.product} not found`);
       }
 
+      // Convert quantity to base units
+      let baseUnitQuantity = ing.quantity;
+      if (ing.unit !== product.baseUnit) {
+        // Calculate base unit quantity from sub-unit
+        const subUnit = product.subUnits.find(su => su.name === ing.unit);
+        if (!subUnit) {
+          throw new Error(`Unit ${ing.unit} not found for ${product.name}`);
+        }
+        baseUnitQuantity = ing.quantity / subUnit.conversionRate;
+      }
+
       // Validate stock availability
-      if (product.quantity < ing.quantity) {
+      if (product.quantity < baseUnitQuantity) {
         throw new Error(`Insufficient stock for ${product.name}. Available: ${product.quantity} ${product.baseUnit}`);
       }
 
@@ -67,20 +81,21 @@ export const completeProduction = async (req, res) => {
         productName: product.name,
         quantity: ing.quantity,
         unit: ing.unit,
+        baseUnitQuantity,
         unitCost: priceToUse,
         usedBuyingPrice: ing.useBuyingPrice || false
       });
 
-      // Deduct stock
+      // Deduct stock in base units
       const previousQuantity = product.quantity;
-      product.quantity -= ing.quantity;
+      product.quantity -= baseUnitQuantity;
       await product.save({ session });
 
       // Record stock movement
       await StockMovement.create([{
         product: product._id,
         movementType: 'production',
-        quantity: -ing.quantity,
+        quantity: -baseUnitQuantity,
         previousQuantity,
         newQuantity: product.quantity,
         reference: type === 'custom' 
@@ -106,13 +121,90 @@ export const completeProduction = async (req, res) => {
       notes: notes || ''
     };
 
+    let createdSale = null;
+
     if (type === 'custom') {
       // Custom production (customer combination)
       productionData.customerName = customerName;
       productionData.customOutputName = customOutputName;
+      productionData.sellingPrice = parseFloat(sellingPrice);
+      productionData.totalRevenue = parseFloat(sellingPrice) * outputQuantity;
+      productionData.profit = productionData.totalRevenue - totalCost;
       productionData.soldImmediately = sellImmediately || false;
-      
-      // Don't add to any product stock for custom production
+
+      // If selling immediately, create a sale
+      if (sellImmediately && saleData) {
+        const saleTotal = parseFloat(sellingPrice) * outputQuantity;
+        const amountPaid = saleData.amountPaid || 0;
+        const amountDue = Math.max(0, saleTotal - amountPaid);
+
+        // Determine payment status
+        let paymentStatus = 'paid';
+        if (saleData.paymentMethod === 'credit' || amountPaid === 0) {
+          paymentStatus = 'unpaid';
+        } else if (amountPaid < saleTotal) {
+          paymentStatus = 'partial';
+        }
+
+        // Find or create customer
+        let customer = null;
+        const existingCustomer = await Customer.findOne({ 
+          name: { $regex: new RegExp(`^${customerName}$`, 'i') }
+        }).session(session);
+
+        if (existingCustomer) {
+          customer = existingCustomer;
+        } else {
+          // Create new customer
+          const newCustomer = await Customer.create([{
+            name: customerName,
+            phone: 'N/A',
+            customerType: 'regular',
+            notes: `Created from custom production: ${customOutputName}`
+          }], { session });
+          customer = newCustomer[0];
+        }
+
+        // Create sale
+        const sale = await Sale.create([{
+          items: [{
+            product: null, // Custom product, no product reference
+            productName: `${customerName} - ${customOutputName}`,
+            quantity: outputQuantity,
+            unit: 'bags',
+            unitPrice: parseFloat(sellingPrice),
+            discount: 0,
+            totalPrice: saleTotal,
+            baseUnitQuantity: outputQuantity
+          }],
+          subtotal: saleTotal,
+          discount: 0,
+          transport: 0,
+          tax: 0,
+          total: saleTotal,
+          paymentMethod: saleData.paymentMethod,
+          splitPayments: saleData.splitPayments,
+          paymentStatus,
+          amountPaid,
+          amountDue,
+          customer: customer._id,
+          customerName: customer.name,
+          cashier: req.user.id,
+          cashierName: req.user.name,
+          notes: `From custom production: ${customOutputName}`,
+          isCreditPayment: false
+        }], { session });
+
+        createdSale = sale[0];
+        productionData.saleReference = createdSale._id;
+
+        // Update customer totals
+        customer.totalPurchases += saleTotal;
+        if (amountDue > 0) {
+          customer.currentCredit += amountDue;
+        }
+        await customer.save({ session });
+      }
       
     } else {
       // Standard production (TELE feeds)
@@ -145,11 +237,25 @@ export const completeProduction = async (req, res) => {
 
     await session.commitTransaction();
 
-    res.status(201).json({
-      success: true,
-      message: 'Production completed successfully',
-      data: production[0]
-    });
+    // Populate sale if created
+    if (createdSale) {
+      const populatedSale = await Sale.findById(createdSale._id)
+        .populate('customer')
+        .populate('cashier', 'name');
+
+      res.status(201).json({
+        success: true,
+        message: 'Production and sale completed successfully',
+        data: production[0],
+        sale: populatedSale
+      });
+    } else {
+      res.status(201).json({
+        success: true,
+        message: 'Production completed successfully',
+        data: production[0]
+      });
+    }
   } catch (error) {
     await session.abortTransaction();
     res.status(500).json({
@@ -170,7 +276,7 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
     let totalCost = 0;
     const processedIngredients = [];
 
-    // Process each ingredient
+    // Process each ingredient with multi-unit support
     for (const ing of productionData.ingredients) {
       const product = await Product.findById(ing.product).session(session);
       
@@ -178,7 +284,17 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
         throw new Error(`Product ${ing.product} not found`);
       }
 
-      if (product.quantity < ing.quantity) {
+      // Convert to base units
+      let baseUnitQuantity = ing.quantity;
+      if (ing.unit !== product.baseUnit) {
+        const subUnit = product.subUnits.find(su => su.name === ing.unit);
+        if (!subUnit) {
+          throw new Error(`Unit ${ing.unit} not found for ${product.name}`);
+        }
+        baseUnitQuantity = ing.quantity / subUnit.conversionRate;
+      }
+
+      if (product.quantity < baseUnitQuantity) {
         throw new Error(`Insufficient stock for ${product.name}`);
       }
 
@@ -191,18 +307,19 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
         productName: product.name,
         quantity: ing.quantity,
         unit: ing.unit,
+        baseUnitQuantity,
         unitCost: priceToUse,
         usedBuyingPrice: ing.useBuyingPrice || false
       });
 
       const previousQuantity = product.quantity;
-      product.quantity -= ing.quantity;
+      product.quantity -= baseUnitQuantity;
       await product.save({ session });
 
       await StockMovement.create([{
         product: product._id,
         movementType: 'production',
-        quantity: -ing.quantity,
+        quantity: -baseUnitQuantity,
         previousQuantity,
         newQuantity: product.quantity,
         reference: `Formula: ${formula.name}`,
@@ -287,6 +404,7 @@ export const getProductionHistory = async (req, res) => {
       .populate('formula')
       .populate('ingredients.product')
       .populate('performedBy', 'name')
+      .populate('saleReference')
       .sort({ createdAt: -1 })
       .limit(parseInt(limit));
 
@@ -308,7 +426,8 @@ export const getProductionById = async (req, res) => {
       .populate('finalProduct')
       .populate('formula')
       .populate('ingredients.product')
-      .populate('performedBy', 'name email');
+      .populate('performedBy', 'name email')
+      .populate('saleReference');
 
     if (!production) {
       return res.status(404).json({
@@ -352,6 +471,8 @@ export const getProductionStats = async (req, res) => {
           _id: null,
           totalProductions: { $sum: 1 },
           totalCost: { $sum: '$totalCost' },
+          totalRevenue: { $sum: '$totalRevenue' },
+          totalProfit: { $sum: '$profit' },
           totalOutput: { $sum: '$outputQuantity' },
           avgCostPerUnit: { $avg: '$costPerUnit' }
         }
@@ -382,7 +503,9 @@ export const getProductionStats = async (req, res) => {
           _id: '$customerName',
           customerName: { $first: '$customerName' },
           totalProductions: { $sum: 1 },
-          totalCost: { $sum: '$totalCost' }
+          totalCost: { $sum: '$totalCost' },
+          totalRevenue: { $sum: '$totalRevenue' },
+          totalProfit: { $sum: '$profit' }
         }
       },
       { $sort: { totalProductions: -1 } },
@@ -395,6 +518,8 @@ export const getProductionStats = async (req, res) => {
         summary: stats[0] || {
           totalProductions: 0,
           totalCost: 0,
+          totalRevenue: 0,
+          totalProfit: 0,
           totalOutput: 0,
           avgCostPerUnit: 0
         },
