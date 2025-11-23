@@ -11,7 +11,8 @@ import {
   Settings,
   Warehouse,
   CreditCard,
-  Factory
+  Factory,
+  Truck
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -24,6 +25,7 @@ const menuItems = [
   { icon: CreditCard, label: 'Debts', path: '/debts' },
   { icon: Factory, label: 'Production', path: '/production' },
   { icon: FileText, label: 'Sales', path: '/sales' },
+  { icon: Truck, label: 'Vehicles', path: '/vehicles' },
   { icon: FileText, label: 'Invoices', path: '/invoices' },
   { icon: BarChart3, label: 'Reports', path: '/reports' },
   { icon: Settings, label: 'Settings', path: '/settings' },

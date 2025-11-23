@@ -1,32 +1,41 @@
 // server/utils/emailService.js
 
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import Sale from '../models/Sale.model.js';
 import Product from '../models/Product.model.js';
 import Settings from '../models/Settings.model.js';
 import DailyReport from '../models/DailyReport.model.js';
 
-// Create transporter
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: process.env.EMAIL_HOST,
-    port: process.env.EMAIL_PORT,
-    secure: false,
-    auth: {
-      user: process.env.EMAIL_USER,
-      pass: process.env.EMAIL_PASSWORD
-    }
-  });
-};
+// Initialize Resend with error handling
+let resend;
+try {
+  if (!process.env.RESEND_API_KEY) {
+    throw new Error('RESEND_API_KEY environment variable is missing');
+  }
+  resend = new Resend(process.env.RESEND_API_KEY);
+} catch (error) {
+  console.error('Failed to initialize Resend:', error.message);
+  // You might want to handle this differently based on your needs
+}
 
 // Send daily report with checks and balances
 export const sendDailyReportWithBalance = async (dailyReportId) => {
   try {
+    // Check if Resend is properly initialized
+    if (!resend) {
+      throw new Error('Email service not configured - RESEND_API_KEY missing');
+    }
+
     const settings = await Settings.findOne();
     
     if (!settings || !settings.enableEmailAlerts || settings.reportRecipients.length === 0) {
       console.log('Email alerts disabled or no recipients configured');
       return { success: false, message: 'Email alerts disabled' };
+    }
+
+    // Check if BUSINESS_EMAIL is set
+    if (!process.env.BUSINESS_EMAIL) {
+      throw new Error('BUSINESS_EMAIL environment variable is missing');
     }
 
     // Get the daily report
@@ -51,7 +60,7 @@ export const sendDailyReportWithBalance = async (dailyReportId) => {
       $expr: { $lte: ['$quantity', '$reorderLevel'] }
     });
 
-    // Create email content
+    // Create email content (your existing HTML template)
     const emailHTML = `
       <!DOCTYPE html>
       <html>
@@ -92,34 +101,30 @@ export const sendDailyReportWithBalance = async (dailyReportId) => {
             <!-- Daily Checks & Balances -->
             <div class="section">
               <h2>📊 Daily Checks & Balances</h2>
-              // server/utils/emailService.js - Update sendDailyReportWithBalance
-
-// In the email HTML, update the expected cash calculation section:
-
-<div class="summary-item">
-  <span class="label">Opening Cash:</span>
-  <span class="value">${settings.currency} ${dailyReport.openingCash.toLocaleString()}</span>
-</div>
-<div class="summary-item">
-  <span class="label">Cash Sales:</span>
-  <span class="value positive">+${settings.currency} ${dailyReport.cashSales.toLocaleString()}</span>
-</div>
-<div class="summary-item">
-  <span class="label">M-Pesa Sales (Not Cash):</span>
-  <span class="value" style="color: #8b5cf6;">+${settings.currency} ${dailyReport.mpesaSales.toLocaleString()}</span>
-</div>
-<div class="summary-item">
-  <span class="label">Total Expenses:</span>
-  <span class="value negative">-${settings.currency} ${dailyReport.totalExpenses.toLocaleString()}</span>
-</div>
-<div class="summary-item">
-  <span class="label">Expected Cash:</span>
-  <span class="value">${settings.currency} ${dailyReport.expectedCash.toLocaleString()}</span>
-</div>
-<div class="summary-item">
-  <span class="label">Actual Cash:</span>
-  <span class="value">${settings.currency} ${dailyReport.actualCash.toLocaleString()}</span>
-</div>
+              <div class="summary-item">
+                <span class="label">Opening Cash:</span>
+                <span class="value">${settings.currency} ${dailyReport.openingCash.toLocaleString()}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">Cash Sales:</span>
+                <span class="value positive">+${settings.currency} ${dailyReport.cashSales.toLocaleString()}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">M-Pesa Sales (Not Cash):</span>
+                <span class="value" style="color: #8b5cf6;">+${settings.currency} ${dailyReport.mpesaSales.toLocaleString()}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">Total Expenses:</span>
+                <span class="value negative">-${settings.currency} ${dailyReport.totalExpenses.toLocaleString()}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">Expected Cash:</span>
+                <span class="value">${settings.currency} ${dailyReport.expectedCash.toLocaleString()}</span>
+              </div>
+              <div class="summary-item">
+                <span class="label">Actual Cash:</span>
+                <span class="value">${settings.currency} ${dailyReport.actualCash.toLocaleString()}</span>
+              </div>
               
               <div class="variance-box">
                 <div style="font-size: 1.2em; margin-bottom: 5px;">Cash Variance</div>
@@ -208,12 +213,10 @@ export const sendDailyReportWithBalance = async (dailyReportId) => {
       </html>
     `;
 
-    const transporter = createTransporter();
-
-    // Send email to all recipients
+    // Send email to all recipients using Resend
     const emailPromises = settings.reportRecipients.map(recipient => 
-      transporter.sendMail({
-        from: `"${settings.businessName}" <${process.env.EMAIL_USER}>`,
+      resend.emails.send({
+        from: process.env.BUSINESS_EMAIL,
         to: recipient,
         subject: `Daily Business Report - ${new Date(dailyReport.reportDate).toLocaleDateString('en-KE')}`,
         html: emailHTML
@@ -232,17 +235,26 @@ export const sendDailyReportWithBalance = async (dailyReportId) => {
 
 // Keep the old function for backward compatibility
 export const sendDailyReport = async () => {
-  // This can be removed or kept for scheduled reports without checks & balances
   console.log('Use sendDailyReportWithBalance instead');
 };
 
 // Send low stock alert
 export const sendLowStockAlert = async (product) => {
   try {
+    // Check if Resend is properly initialized
+    if (!resend) {
+      throw new Error('Email service not configured - RESEND_API_KEY missing');
+    }
+
     const settings = await Settings.findOne();
     
     if (!settings || !settings.enableEmailAlerts || settings.reportRecipients.length === 0) {
       return;
+    }
+
+    // Check if BUSINESS_EMAIL is set
+    if (!process.env.BUSINESS_EMAIL) {
+      throw new Error('BUSINESS_EMAIL environment variable is missing');
     }
 
     const emailHTML = `
@@ -289,11 +301,10 @@ export const sendLowStockAlert = async (product) => {
       </html>
     `;
 
-    const transporter = createTransporter();
-
+    // Send emails using Resend
     for (const recipient of settings.reportRecipients) {
-      await transporter.sendMail({
-        from: `"${settings.businessName}" <${process.env.EMAIL_USER}>`,
+      await resend.emails.send({
+        from: process.env.BUSINESS_EMAIL,
         to: recipient,
         subject: `⚠️ Low Stock Alert - ${product.name}`,
         html: emailHTML

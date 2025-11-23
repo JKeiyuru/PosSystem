@@ -16,6 +16,9 @@ import { formatCurrency } from '../lib/utils';
 import Receipt from '../components/pos/Receipt';
 import ReceiptActions from '../components/pos/ReceiptActions';
 import api from '../services/api';
+import CloseOfBusinessDialog from '../components/reports/CloseOfBusinessDialog';
+import { useAuth } from '../hooks/useAuth';
+
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -35,6 +38,8 @@ export default function POS() {
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [splitPayments, setSplitPayments] = useState([{ method: 'cash', amount: '' }]);
   const receiptRef = useRef();
+  const { user } = useAuth();
+  const [showCloseBusinessDialog, setShowCloseBusinessDialog] = useState(false);
 
   useEffect(() => {
     fetchProducts();
@@ -511,6 +516,17 @@ export default function POS() {
                 </div>
               </div>
 
+              {(user.role === 'admin' || user.role === 'manager') && (
+                  <Button
+                    variant="outline"
+                    className="w-full mt-2"
+                    onClick={() => setShowCloseBusinessDialog(true)}
+                  >
+                    <AlertCircle className="mr-2 h-4 w-4" />
+                    Close of Business
+                  </Button>
+                )}
+
               {/* Checkout Button */}
               <Button
                 className="w-full"
@@ -521,6 +537,11 @@ export default function POS() {
                 Proceed to Payment
               </Button>
             </CardContent>
+            <CloseOfBusinessDialog 
+                open={showCloseBusinessDialog}
+                onOpenChange={setShowCloseBusinessDialog}
+                onSuccess={() => {}}
+              />
           </Card>
         </div>
       </div>

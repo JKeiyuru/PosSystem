@@ -15,6 +15,7 @@ import Settings from './pages/Settings';
 import Sales from './pages/Sales';
 import Debts from './pages/Debts';
 import Production from './pages/Production';
+import Vehicles from './pages/Vehicles';
 import './App.css'
 
 function PrivateRoute({ children }) {
@@ -49,6 +50,7 @@ function App() {
           <Route path="reports" element={<Reports />} />
           <Route path="settings" element={<Settings />} />
           <Route path="sales" element={<Sales />} />
+          <Route path="vehicles" element={<Vehicles />} />
         </Route>
       </Routes>
     </Router>
