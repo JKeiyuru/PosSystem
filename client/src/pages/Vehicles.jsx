@@ -1,4 +1,4 @@
-// client/src/pages/Vehicles.jsx - NEW PAGE
+// client/src/pages/Vehicles.jsx - FIXED
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -10,13 +10,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Plus, Edit, Fuel, Wrench, TrendingUp, Car } from 'lucide-react';
+import { Plus, Edit, Fuel, Wrench, Car } from 'lucide-react';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { vehicleService } from '../services/vehicle.service';
 import { useAuth } from '../hooks/useAuth';
 
 export default function Vehicles() {
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
   const [vehicles, setVehicles] = useState([]);
   const [fuelRecords, setFuelRecords] = useState([]);
   const [maintenanceRecords, setMaintenanceRecords] = useState([]);
@@ -60,8 +60,10 @@ export default function Vehicles() {
   });
 
   useEffect(() => {
-    fetchAllData();
-  }, []);
+    if (!authLoading && user) {
+      fetchAllData();
+    }
+  }, [authLoading, user]);
 
   const fetchAllData = async () => {
     try {
@@ -119,7 +121,7 @@ export default function Vehicles() {
       await vehicleService.createFuelRecord({
         ...fuelForm,
         totalCost,
-        recordedBy: user.id
+        recordedBy: user._id
       });
       await fetchAllData();
       resetFuelForm();
@@ -143,7 +145,7 @@ export default function Vehicles() {
       await vehicleService.createMaintenanceRecord({
         ...maintenanceForm,
         performedBy: maintenanceForm.performedBy || user.name,
-        recordedBy: user.id
+        recordedBy: user._id
       });
       await fetchAllData();
       resetMaintenanceForm();
@@ -196,8 +198,8 @@ export default function Vehicles() {
   };
 
   const calculateVehicleStats = (vehicleId) => {
-    const vehicleFuelRecords = fuelRecords.filter(r => r.vehicle._id === vehicleId).sort((a, b) => new Date(a.date) - new Date(b.date));
-    const vehicleMaintenanceRecords = maintenanceRecords.filter(r => r.vehicle._id === vehicleId);
+    const vehicleFuelRecords = fuelRecords.filter(r => r.vehicle?._id === vehicleId).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const vehicleMaintenanceRecords = maintenanceRecords.filter(r => r.vehicle?._id === vehicleId);
 
     let totalFuelCost = 0;
     let totalLiters = 0;
@@ -234,10 +236,17 @@ export default function Vehicles() {
     };
   };
 
-  const canModify = user.role === 'admin' || user.role === 'manager';
+  // Check if user can modify (only after auth is loaded)
+  const canModify = user && (user.role === 'admin' || user.role === 'manager');
 
-  if (loading && vehicles.length === 0) {
+  // Show loading state while auth is loading
+  if (authLoading || (loading && vehicles.length === 0)) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>;
+  }
+
+  // If no user after auth loaded, shouldn't happen due to PrivateRoute but just in case
+  if (!user) {
+    return <div className="flex items-center justify-center h-screen">Please log in</div>;
   }
 
   return (
@@ -378,7 +387,7 @@ export default function Vehicles() {
                 <TableBody>
                   {fuelRecords.map((record, index) => {
                     const prevRecord = fuelRecords.find((r, i) => 
-                      i < index && r.vehicle._id === record.vehicle._id
+                      i < index && r.vehicle?._id === record.vehicle?._id
                     );
                     const kmDriven = prevRecord ? record.odometerReading - prevRecord.odometerReading : 0;
                     const efficiency = kmDriven > 0 ? (kmDriven / record.liters).toFixed(2) : '-';
@@ -386,7 +395,7 @@ export default function Vehicles() {
                     return (
                       <TableRow key={record._id}>
                         <TableCell>{formatDate(record.date)}</TableCell>
-                        <TableCell>{record.vehicle.registrationNumber}</TableCell>
+                        <TableCell>{record.vehicle?.registrationNumber}</TableCell>
                         <TableCell>{record.odometerReading} km</TableCell>
                         <TableCell>{record.liters} L</TableCell>
                         <TableCell>{formatCurrency(record.costPerLiter)}</TableCell>
@@ -437,7 +446,7 @@ export default function Vehicles() {
                   {maintenanceRecords.map(record => (
                     <TableRow key={record._id}>
                       <TableCell>{formatDate(record.date)}</TableCell>
-                      <TableCell>{record.vehicle.registrationNumber}</TableCell>
+                      <TableCell>{record.vehicle?.registrationNumber}</TableCell>
                       <TableCell>
                         <Badge variant={record.type === 'regular' ? 'success' : 'warning'}>
                           {record.type}

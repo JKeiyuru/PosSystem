@@ -1,5 +1,5 @@
 /* eslint-disable no-unused-vars */
-// client/src/pages/POS_Updated.jsx
+// client/src/pages/POS.jsx - UPDATED WITH CLOSE OF BUSINESS BUTTON
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -8,7 +8,7 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Search, Trash2, Plus, Minus, Package, Tag } from 'lucide-react';
+import { Search, Trash2, Plus, Minus, Package, Tag, AlertCircle } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { customerService } from '../services/customer.service';
 import { saleService } from '../services/sale.service';
@@ -21,6 +21,7 @@ import { useAuth } from '../hooks/useAuth';
 
 
 export default function POS() {
+  const { user } = useAuth();
   const [products, setProducts] = useState([]);
   const [customers, setCustomers] = useState([]);
   const [cart, setCart] = useState([]);
@@ -37,9 +38,8 @@ export default function POS() {
   const [selectedQuantity, setSelectedQuantity] = useState('1');
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [splitPayments, setSplitPayments] = useState([{ method: 'cash', amount: '' }]);
-  const receiptRef = useRef();
-  const { user } = useAuth();
   const [showCloseBusinessDialog, setShowCloseBusinessDialog] = useState(false);
+  const receiptRef = useRef();
 
   useEffect(() => {
     fetchProducts();
@@ -222,9 +222,6 @@ export default function POS() {
       return;
     }
 
-    const total = calculateTotal();
-    
-    // For credit sales, open payment dialog
     setShowPaymentDialog(true);
   };
 
@@ -232,11 +229,9 @@ export default function POS() {
     const total = calculateTotal();
     const totalPaid = getTotalPaid();
 
-    // Validate payments
     const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
     
     if (validPayments.length === 0) {
-      // Check if any payment method is credit
       const hasCredit = splitPayments.some(p => p.method === 'credit');
       if (!hasCredit) {
         alert('Please enter payment amounts');
@@ -244,7 +239,6 @@ export default function POS() {
       }
     }
 
-    // For non-credit payments, validate sufficient payment
     const hasOnlyCredit = validPayments.length === 0 || validPayments.every(p => p.method === 'credit');
     if (!hasOnlyCredit && totalPaid < total) {
       alert('Insufficient payment amount');
@@ -254,7 +248,6 @@ export default function POS() {
     try {
       setLoading(true);
 
-      // Determine primary payment method and status
       let primaryPaymentMethod = 'cash';
       let paymentStatus = 'paid';
       
@@ -264,7 +257,6 @@ export default function POS() {
           paymentStatus = totalPaid >= total ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
         }
       } else if (validPayments.length > 1) {
-        // Multiple payments - use the largest one as primary
         const sortedPayments = [...validPayments].sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount));
         primaryPaymentMethod = sortedPayments[0].method;
       }
@@ -516,16 +508,15 @@ export default function POS() {
                 </div>
               </div>
 
-              {(user.role === 'admin' || user.role === 'manager') && (
-                  <Button
-                    variant="outline"
-                    className="w-full mt-2"
-                    onClick={() => setShowCloseBusinessDialog(true)}
-                  >
-                    <AlertCircle className="mr-2 h-4 w-4" />
-                    Close of Business
-                  </Button>
-                )}
+              {/* Close of Business Button - Moved from Dashboard */}
+              <Button
+                variant="outline"
+                className="w-full bg-red-50 hover:bg-red-100 text-red-700 border-red-300"
+                onClick={() => setShowCloseBusinessDialog(true)}
+              >
+                <AlertCircle className="mr-2 h-4 w-4" />
+                Close of Business
+              </Button>
 
               {/* Checkout Button */}
               <Button
@@ -537,11 +528,6 @@ export default function POS() {
                 Proceed to Payment
               </Button>
             </CardContent>
-            <CloseOfBusinessDialog 
-                open={showCloseBusinessDialog}
-                onOpenChange={setShowCloseBusinessDialog}
-                onSuccess={() => {}}
-              />
           </Card>
         </div>
       </div>
@@ -744,6 +730,16 @@ export default function POS() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Close of Business Dialog */}
+      <CloseOfBusinessDialog 
+        open={showCloseBusinessDialog}
+        onOpenChange={setShowCloseBusinessDialog}
+        onSuccess={() => {
+          // Optionally refresh data after closing business
+          fetchProducts();
+        }}
+      />
     </>
   );
 }

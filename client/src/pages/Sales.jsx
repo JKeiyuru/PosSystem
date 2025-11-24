@@ -1,6 +1,4 @@
-// eslint-disable no-unused-vars 
-/* eslint-disable react-hooks/exhaustive-deps */
-// client/src/pages/Sales.jsx
+// client/src/pages/Sales.jsx - WITH ROLE-BASED DELETE PERMISSION
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -24,17 +22,18 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Eye, Printer, Edit, Trash2, Calendar,Download } from 'lucide-react';
+import { Eye, Printer, Edit, Trash2, Download } from 'lucide-react';
 import { saleService } from '../services/sale.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import Receipt from '../components/pos/Receipt';
 import { useReactToPrint } from 'react-to-print';
 import api from '../services/api';
-import ReceiptActions from '../components/pos/ReceiptActions';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { useAuth } from '../hooks/useAuth';
 
 export default function Sales() {
+  const { user } = useAuth();
   const [sales, setSales] = useState([]);
   const [selectedSale, setSelectedSale] = useState(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
@@ -50,6 +49,9 @@ export default function Sales() {
     amountPaid: ''
   });
   const receiptRef = useRef();
+
+  // Check if user can delete sales (admin and manager only)
+  const canDeleteSales = user && (user.role === 'admin' || user.role === 'manager');
 
   useEffect(() => {
     fetchSales();
@@ -131,9 +133,13 @@ export default function Sales() {
   };
 
   const handleDeleteSale = async (id) => {
+    if (!canDeleteSales) {
+      alert('You do not have permission to delete sales');
+      return;
+    }
+
     if (window.confirm('Are you sure you want to delete this sale? This action cannot be undone.')) {
       try {
-        // Note: You'll need to implement a delete endpoint in the backend
         await api.delete(`/sales/${id}`);
         alert('Sale deleted successfully');
         fetchSales();
@@ -145,35 +151,35 @@ export default function Sales() {
   };
 
   const handleDownloadPDF = async () => {
-  if (!receiptRef.current || !selectedSale) return;
+    if (!receiptRef.current || !selectedSale) return;
 
-  try {
-    const receiptElement = receiptRef.current;
-    
-    const canvas = await html2canvas(receiptElement, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#ffffff'
-    });
+    try {
+      const receiptElement = receiptRef.current;
+      
+      const canvas = await html2canvas(receiptElement, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
 
-    const imgWidth = 80;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      const imgWidth = 80;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
 
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: [80, imgHeight + 10]
-    });
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [80, imgHeight + 10]
+      });
 
-    const imgData = canvas.toDataURL('image/png');
-    pdf.addImage(imgData, 'PNG', 0, 5, imgWidth, imgHeight);
-    pdf.save(`Receipt-${selectedSale.saleNumber}.pdf`);
-  } catch (error) {
-    console.error('Error generating PDF:', error);
-    alert('Error generating PDF. Please try again.');
-  }
-};
+      const imgData = canvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', 0, 5, imgWidth, imgHeight);
+      pdf.save(`Receipt-${selectedSale.saleNumber}.pdf`);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF. Please try again.');
+    }
+  };
 
   const handlePrintReceipt = useReactToPrint({
     content: () => receiptRef.current,
@@ -183,7 +189,9 @@ export default function Sales() {
   const getPaymentMethodBadge = (method) => {
     const methods = {
       cash: { label: 'Cash', color: 'default' },
-      mpesa: { label: 'M-Pesa', color: 'success' },
+      mpesa_paybill: { label: 'M-Pesa (Paybill)', color: 'success' },
+      mpesa_beth: { label: 'M-Pesa (Beth)', color: 'success' },
+      mpesa_martin: { label: 'M-Pesa (Martin)', color: 'success' },
       credit: { label: 'Credit', color: 'warning' }
     };
     return <Badge variant={methods[method]?.color || 'default'}>{methods[method]?.label || method}</Badge>;
@@ -281,7 +289,9 @@ export default function Sales() {
                   <SelectContent>
                     <SelectItem value="all">All Methods</SelectItem>
                     <SelectItem value="cash">Cash</SelectItem>
-                    <SelectItem value="mpesa">M-Pesa</SelectItem>
+                    <SelectItem value="mpesa_paybill">M-Pesa (Paybill)</SelectItem>
+                    <SelectItem value="mpesa_beth">M-Pesa (Beth)</SelectItem>
+                    <SelectItem value="mpesa_martin">M-Pesa (Martin)</SelectItem>
                     <SelectItem value="credit">Credit</SelectItem>
                   </SelectContent>
                 </Select>
@@ -340,6 +350,7 @@ export default function Sales() {
                           size="sm"
                           variant="outline"
                           onClick={() => handleViewSale(sale._id)}
+                          title="View Sale"
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
@@ -348,17 +359,21 @@ export default function Sales() {
                             size="sm"
                             variant="outline"
                             onClick={() => handleEditSale(sale)}
+                            title="Update Payment"
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
                         )}
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => handleDeleteSale(sale._id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {canDeleteSales && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDeleteSale(sale._id)}
+                            title="Delete Sale"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

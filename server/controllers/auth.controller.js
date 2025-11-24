@@ -1,4 +1,4 @@
-// server/controllers/auth.controller.js
+// server/controllers/auth.controller.js - UPDATED
 
 import User from '../models/User.model.js';
 import jwt from 'jsonwebtoken';
@@ -12,20 +12,21 @@ const generateToken = (userId) => {
 
 export const register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, username, email, password, role } = req.body;
 
     // Check if user exists
-    const existingUser = await User.findOne({ email });
+    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
       return res.status(400).json({
         success: false,
-        message: 'User already exists with this email'
+        message: 'User already exists with this email or username'
       });
     }
 
     // Create new user
     const user = await User.create({
       name,
+      username,
       email,
       password,
       role: role || 'cashier'
@@ -53,12 +54,15 @@ export const login = async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // Find user
-    const user = await User.findOne({ email });
+    // Find user by email or username
+    const user = await User.findOne({ 
+      $or: [{ email }, { username: email }] 
+    });
+    
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid email/username or password'
       });
     }
 
@@ -75,7 +79,7 @@ export const login = async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid email or password'
+        message: 'Invalid email/username or password'
       });
     }
 
@@ -178,6 +182,82 @@ export const getAllUsers = async (req, res) => {
     res.json({
       success: true,
       data: users
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const updateUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name, email, role, isActive } = req.body;
+
+    // Prevent user from deactivating themselves
+    if (req.user.id === id && isActive === false) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot deactivate your own account'
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      id,
+      { name, email, role, isActive },
+      { new: true, runValidators: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      data: user
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const deleteUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Prevent user from deleting themselves
+    if (req.user.id === id) {
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot delete your own account'
+      });
+    }
+
+    const user = await User.findByIdAndUpdate(
+      id,
+      { isActive: false },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'User deactivated successfully'
     });
   } catch (error) {
     res.status(500).json({

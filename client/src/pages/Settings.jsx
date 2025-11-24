@@ -1,5 +1,5 @@
 /* eslint-disable no-unused-vars */
-// client/src/pages/Settings.jsx
+// client/src/pages/Settings.jsx - FIXED
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -7,7 +7,11 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Settings as SettingsIcon, User, Bell, Building } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Settings as SettingsIcon, User, Bell, Building, Users } from 'lucide-react';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { Badge } from '../components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import api from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 
@@ -35,6 +39,15 @@ export default function Settings() {
     newPassword: '',
     confirmPassword: ''
   });
+  const [users, setUsers] = useState([]);
+  const [showUserDialog, setShowUserDialog] = useState(false);
+  const [userForm, setUserForm] = useState({
+    name: '',
+    username: '',
+    email: '',
+    password: '',
+    role: 'cashier'
+  });
   const [loading, setLoading] = useState(false);
   const [newRecipient, setNewRecipient] = useState('');
 
@@ -42,9 +55,12 @@ export default function Settings() {
     fetchSettings();
     if (user) {
       setProfileData({
-        name: user.name,
-        email: user.email
+        name: user.name || '',
+        email: user.email || ''
       });
+    }
+    if (user?.role === 'admin') {
+      fetchUsers();
     }
   }, [user]);
 
@@ -56,6 +72,17 @@ export default function Settings() {
       }
     } catch (error) {
       console.error('Error fetching settings:', error);
+    }
+  };
+
+  const fetchUsers = async () => {
+    try {
+      const response = await api.get('/auth/users');
+      if (response.data.success) {
+        setUsers(response.data.data);
+      }
+    } catch (error) {
+      console.error('Error fetching users:', error);
     }
   };
 
@@ -115,6 +142,35 @@ export default function Settings() {
     }
   };
 
+  const handleUserSubmit = async (e) => {
+    e.preventDefault();
+    
+    if (!userForm.name || !userForm.username || !userForm.email || !userForm.password) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      await api.post('/auth/register', userForm);
+      alert('User created successfully!');
+      setShowUserDialog(false);
+      setUserForm({
+        name: '',
+        username: '',
+        email: '',
+        password: '',
+        role: 'cashier'
+      });
+      fetchUsers();
+    } catch (error) {
+      console.error('Error saving user:', error);
+      alert('Error creating user: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleAddRecipient = () => {
     if (newRecipient && !businessSettings.reportRecipients.includes(newRecipient)) {
       setBusinessSettings({
@@ -140,7 +196,7 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="business" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className={user?.role === 'admin' ? 'grid w-full grid-cols-4' : 'grid w-full grid-cols-3'}>
           <TabsTrigger value="business">
             <Building className="mr-2 h-4 w-4" />
             Business
@@ -153,6 +209,12 @@ export default function Settings() {
             <Bell className="mr-2 h-4 w-4" />
             Notifications
           </TabsTrigger>
+          {user?.role === 'admin' && (
+            <TabsTrigger value="users">
+              <Users className="mr-2 h-4 w-4" />
+              Users
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* Business Settings Tab */}
@@ -168,7 +230,7 @@ export default function Settings() {
                     <Label htmlFor="businessName">Business Name</Label>
                     <Input
                       id="businessName"
-                      value={businessSettings.businessName}
+                      value={businessSettings.businessName || ''}
                       onChange={(e) => setBusinessSettings({...businessSettings, businessName: e.target.value})}
                     />
                   </div>
@@ -178,7 +240,7 @@ export default function Settings() {
                     <Input
                       id="businessEmail"
                       type="email"
-                      value={businessSettings.businessEmail}
+                      value={businessSettings.businessEmail || ''}
                       onChange={(e) => setBusinessSettings({...businessSettings, businessEmail: e.target.value})}
                     />
                   </div>
@@ -187,7 +249,7 @@ export default function Settings() {
                     <Label htmlFor="businessPhone">Business Phone</Label>
                     <Input
                       id="businessPhone"
-                      value={businessSettings.businessPhone}
+                      value={businessSettings.businessPhone || ''}
                       onChange={(e) => setBusinessSettings({...businessSettings, businessPhone: e.target.value})}
                     />
                   </div>
@@ -196,7 +258,7 @@ export default function Settings() {
                     <Label htmlFor="currency">Currency</Label>
                     <Input
                       id="currency"
-                      value={businessSettings.currency}
+                      value={businessSettings.currency || 'KES'}
                       onChange={(e) => setBusinessSettings({...businessSettings, currency: e.target.value})}
                     />
                   </div>
@@ -205,7 +267,7 @@ export default function Settings() {
                     <Label htmlFor="businessAddress">Business Address</Label>
                     <Input
                       id="businessAddress"
-                      value={businessSettings.businessAddress}
+                      value={businessSettings.businessAddress || ''}
                       onChange={(e) => setBusinessSettings({...businessSettings, businessAddress: e.target.value})}
                     />
                   </div>
@@ -216,8 +278,8 @@ export default function Settings() {
                       id="taxRate"
                       type="number"
                       step="0.01"
-                      value={businessSettings.taxRate}
-                      onChange={(e) => setBusinessSettings({...businessSettings, taxRate: parseFloat(e.target.value)})}
+                      value={businessSettings.taxRate || 0}
+                      onChange={(e) => setBusinessSettings({...businessSettings, taxRate: parseFloat(e.target.value) || 0})}
                     />
                   </div>
 
@@ -226,8 +288,8 @@ export default function Settings() {
                     <Input
                       id="lowStockThreshold"
                       type="number"
-                      value={businessSettings.lowStockThreshold}
-                      onChange={(e) => setBusinessSettings({...businessSettings, lowStockThreshold: parseInt(e.target.value)})}
+                      value={businessSettings.lowStockThreshold || 10}
+                      onChange={(e) => setBusinessSettings({...businessSettings, lowStockThreshold: parseInt(e.target.value) || 10})}
                     />
                   </div>
 
@@ -235,7 +297,7 @@ export default function Settings() {
                     <Label htmlFor="receiptFooter">Receipt Footer</Label>
                     <Input
                       id="receiptFooter"
-                      value={businessSettings.receiptFooter}
+                      value={businessSettings.receiptFooter || ''}
                       onChange={(e) => setBusinessSettings({...businessSettings, receiptFooter: e.target.value})}
                       placeholder="Thank you for your business!"
                     />
@@ -279,7 +341,7 @@ export default function Settings() {
 
                 <div className="space-y-2">
                   <Label>Role</Label>
-                  <Input value={user?.role} disabled />
+                  <Input value={user?.role || ''} disabled />
                 </div>
 
                 <Button type="submit" disabled={loading}>
@@ -358,7 +420,7 @@ export default function Settings() {
                 <Input
                   id="dailyReportTime"
                   type="time"
-                  value={businessSettings.dailyReportTime}
+                  value={businessSettings.dailyReportTime || '18:00'}
                   onChange={(e) => setBusinessSettings({...businessSettings, dailyReportTime: e.target.value})}
                 />
                 <p className="text-sm text-gray-600">Time when daily reports will be sent</p>
@@ -376,7 +438,7 @@ export default function Settings() {
                   <Button type="button" onClick={handleAddRecipient}>Add</Button>
                 </div>
                 <div className="mt-3 space-y-2">
-                  {businessSettings.reportRecipients.map((email, index) => (
+                  {businessSettings.reportRecipients?.map((email, index) => (
                     <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
                       <span>{email}</span>
                       <Button
@@ -398,7 +460,153 @@ export default function Settings() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Users Tab - Admin Only */}
+        {user?.role === 'admin' && (
+          <TabsContent value="users">
+            <Card>
+              <CardHeader>
+                <div className="flex justify-between items-center">
+                  <CardTitle>User Management</CardTitle>
+                  <Button onClick={() => setShowUserDialog(true)}>
+                    <Users className="mr-2 h-4 w-4" />
+                    Add User
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Username</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Last Login</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {users.map(u => (
+                      <TableRow key={u._id}>
+                        <TableCell>{u.name}</TableCell>
+                        <TableCell>{u.username}</TableCell>
+                        <TableCell>{u.email}</TableCell>
+                        <TableCell>
+                          <Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>
+                            {u.role}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={u.isActive ? 'success' : 'destructive'}>
+                            {u.isActive ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never'}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        )}
       </Tabs>
+
+      {/* Add User Dialog */}
+      <Dialog open={showUserDialog} onOpenChange={setShowUserDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add New User</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={handleUserSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="userName">Full Name *</Label>
+              <Input
+                id="userName"
+                value={userForm.name}
+                onChange={(e) => setUserForm({...userForm, name: e.target.value})}
+                placeholder="John Doe"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="userUsername">Username *</Label>
+              <Input
+                id="userUsername"
+                value={userForm.username}
+                onChange={(e) => setUserForm({...userForm, username: e.target.value})}
+                placeholder="johndoe"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="userEmail">Email *</Label>
+              <Input
+                id="userEmail"
+                type="email"
+                value={userForm.email}
+                onChange={(e) => setUserForm({...userForm, email: e.target.value})}
+                placeholder="john@example.com"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="userPassword">Password *</Label>
+              <Input
+                id="userPassword"
+                type="password"
+                value={userForm.password}
+                onChange={(e) => setUserForm({...userForm, password: e.target.value})}
+                placeholder="Minimum 6 characters"
+                required
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="userRole">Role *</Label>
+              <Select value={userForm.role} onValueChange={(value) => setUserForm({...userForm, role: value})}>
+                <SelectTrigger id="userRole">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cashier">Cashier</SelectItem>
+                  <SelectItem value="manager">Manager</SelectItem>
+                  <SelectItem value="admin">Admin</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex space-x-2">
+              <Button 
+                type="button" 
+                variant="outline" 
+                className="flex-1"
+                onClick={() => {
+                  setShowUserDialog(false);
+                  setUserForm({
+                    name: '',
+                    username: '',
+                    email: '',
+                    password: '',
+                    role: 'cashier'
+                  });
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="flex-1" disabled={loading}>
+                {loading ? 'Creating...' : 'Create User'}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

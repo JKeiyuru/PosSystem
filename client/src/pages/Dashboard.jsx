@@ -1,4 +1,4 @@
-// client/src/pages/Dashboard.jsx - Enhanced with Analytics
+// client/src/pages/Dashboard.jsx - CLOSE OF BUSINESS BUTTON REMOVED
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -24,9 +24,6 @@ import { productService } from '../services/product.service';
 import { stockService } from '../services/stock.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import CloseOfBusinessDialog from '../components/reports/CloseOfBusinessDialog';
-import { Button } from '../components/ui/button';
-import { AlertCircle } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import api from '../services/api';
 
@@ -42,7 +39,6 @@ export default function Dashboard() {
   const [topProducts, setTopProducts] = useState([]);
   const [topCustomers, setTopCustomers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [showCloseBusinessDialog, setShowCloseBusinessDialog] = useState(false);
   const [showLowStockDialog, setShowLowStockDialog] = useState(false);
   const [showTodaysSalesDialog, setShowTodaysSalesDialog] = useState(false);
 
@@ -99,13 +95,6 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-gray-600">Welcome to Bekhal Animal Feeds POS</p>
         </div>
-        <Button 
-          onClick={() => setShowCloseBusinessDialog(true)}
-          className="bg-red-600 hover:bg-red-700"
-        >
-          <AlertCircle className="mr-2 h-4 w-4" />
-          Close of Business
-        </Button>
       </div>
 
       {/* Stats Cards */}
@@ -373,12 +362,6 @@ export default function Dashboard() {
           </div>
         </DialogContent>
       </Dialog>
-
-      <CloseOfBusinessDialog 
-        open={showCloseBusinessDialog}
-        onOpenChange={setShowCloseBusinessDialog}
-        onSuccess={fetchDashboardData}
-      />
     </div>
   );
 }
