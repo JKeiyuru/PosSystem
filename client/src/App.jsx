@@ -1,4 +1,4 @@
-// client/src/App.jsx - UPDATED
+// client/src/App.jsx - UPDATED with Cashier Redirect
 
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './hooks/useAuth';
@@ -28,6 +28,18 @@ function PrivateRoute({ children }) {
   return isAuthenticated ? children : <Navigate to="/login" />;
 }
 
+// NEW: Component to handle role-based default route
+function DefaultRoute() {
+  const { user } = useAuth();
+  
+  // Cashiers go to POS, others go to Dashboard
+  if (user?.role === 'cashier') {
+    return <Navigate to="/pos" replace />;
+  }
+  
+  return <Dashboard />;
+}
+
 function App() {
   return (
     <Router>
@@ -39,7 +51,7 @@ function App() {
             <Layout />
           </PrivateRoute>
         }>
-          <Route index element={<Dashboard />} />
+          <Route index element={<DefaultRoute />} />
           <Route path="pos" element={<POS />} />
           <Route path="products" element={<Products />} />
           <Route path="stock" element={<Stock />} />
