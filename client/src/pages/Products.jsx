@@ -1,5 +1,4 @@
-//eslint-disable react-hooks/exhaustive-deps */
-// client/src/pages/Products.jsx - Updated with auto-calculation
+// client/src/pages/Products.jsx - UPDATED with Cashier Restrictions
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -23,12 +22,14 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Plus, Edit, Trash2, Barcode, Upload, Search, X } from 'lucide-react';
+import { Plus, Edit, Trash2, Barcode, Upload, Search, X, History } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { formatCurrency } from '../lib/utils';
+import { useAuth } from '../hooks/useAuth';
 import * as XLSX from 'xlsx';
 
 export default function Products() {
+  const { user } = useAuth();
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -36,12 +37,15 @@ export default function Products() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [showQuantityLog, setShowQuantityLog] = useState(false);
+  const [quantityLog, setQuantityLog] = useState([]);
+  
   const [formData, setFormData] = useState({
     name: '',
     category: '',
     description: '',
     baseUnit: 'bag',
-    baseUnitSize: '',
+    baseUnitSize: '50', // Default bag size in kg
     buyingPrice: '',
     sellingPrice: '',
     quantity: '',
@@ -50,6 +54,9 @@ export default function Products() {
     hasMultipleUnits: false,
     subUnits: []
   });
+
+  // Check if user can edit/delete products (admin and manager only)
+  const canEditProducts = user && (user.role === 'admin' || user.role === 'manager');
 
   useEffect(() => {
     fetchProducts();
@@ -78,8 +85,10 @@ export default function Products() {
     }
   };
 
-  // Auto-calculate conversion rate based on pricing formula
-  const calculateConversionRate = (unitType, sellingPrice, unitPrice) => {
+  // Auto-calculate conversion rate with editable option
+  const calculateConversionRate = (unitType, sellingPrice, unitPrice, manualRate = null) => {
+    if (manualRate) return manualRate; // Use manual rate if provided
+    
     const baseSelling = parseFloat(sellingPrice) || 0;
     const perUnitPrice = parseFloat(unitPrice) || 0;
     
@@ -88,13 +97,10 @@ export default function Products() {
     let totalIfSoldInUnits;
     
     if (unitType === 'kasuku') {
-      // Formula: (sellingPrice + 60) / pricePerKasuku
       totalIfSoldInUnits = baseSelling + 60;
     } else if (unitType === 'bucket') {
-      // Formula: (sellingPrice + 100) / pricePerBucket
       totalIfSoldInUnits = baseSelling + 100;
     } else if (unitType === 'kg') {
-      // For kg, use the base selling price directly
       totalIfSoldInUnits = baseSelling;
     } else {
       return '';
@@ -107,17 +113,41 @@ export default function Products() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
+    if (!canEditProducts) {
+      alert('You do not have permission to edit products');
+      return;
+    }
+
     try {
-      // Auto-calculate conversion rates before submission
+      // Generate quantity log entry if updating quantity
+      if (editingProduct && formData.quantity !== editingProduct.quantity) {
+        const previousQty = parseFloat(editingProduct.quantity);
+        const newQty = parseFloat(formData.quantity);
+        const difference = newQty - previousQty;
+        
+        const logEntry = {
+          date: new Date(),
+          previousQuantity: previousQty,
+          quantityAdded: difference,
+          newQuantity: newQty,
+          user: user.name
+        };
+        
+        // This would be stored in backend in real implementation
+        console.log('Quantity change log:', logEntry);
+      }
+
       const updatedSubUnits = formData.subUnits.map(subUnit => ({
         ...subUnit,
         conversionRate: parseFloat(subUnit.conversionRate) || 0,
         pricePerUnit: parseFloat(subUnit.pricePerUnit) || 0,
-        profitMargin: subUnit.name === 'kasuku' ? 60 : subUnit.name === 'bucket' ? 100 : 0
+        profitMargin: subUnit.name === 'kasuku' ? 60 : subUnit.name === 'bucket' ? 100 : 0,
+        manualConversionRate: subUnit.manualConversionRate || false
       }));
 
       const dataToSubmit = {
         ...formData,
+        baseUnitSize: parseFloat(formData.baseUnitSize),
         subUnits: updatedSubUnits
       };
 
@@ -138,12 +168,18 @@ export default function Products() {
   };
 
   const handleEdit = (product) => {
+    if (!canEditProducts) {
+      alert('You do not have permission to edit products');
+      return;
+    }
+
     setEditingProduct(product);
     setFormData({
       name: product.name,
       category: product.category,
       description: product.description || '',
       baseUnit: product.baseUnit || 'bag',
+      baseUnitSize: product.baseUnitSize?.toString() || '50',
       buyingPrice: product.buyingPrice,
       sellingPrice: product.sellingPrice,
       quantity: product.quantity,
@@ -156,6 +192,11 @@ export default function Products() {
   };
 
   const handleDelete = async (id) => {
+    if (!canEditProducts) {
+      alert('You do not have permission to delete products');
+      return;
+    }
+
     if (window.confirm('Are you sure you want to delete this product?')) {
       try {
         await productService.delete(id);
@@ -182,6 +223,7 @@ export default function Products() {
       category: '',
       description: '',
       baseUnit: 'bag',
+      baseUnitSize: '50',
       buyingPrice: '',
       sellingPrice: '',
       quantity: '',
@@ -202,7 +244,8 @@ export default function Products() {
           name: 'kg',
           conversionRate: '',
           pricePerUnit: '',
-          profitMargin: 0
+          profitMargin: 0,
+          manualConversionRate: false
         }
       ]
     });
@@ -217,34 +260,62 @@ export default function Products() {
     const newSubUnits = [...formData.subUnits];
     newSubUnits[index][field] = value;
     
-    // Auto-calculate conversion rate when price per unit changes
-    if (field === 'pricePerUnit' || field === 'name') {
+    // Auto-calculate conversion rate when price per unit changes (if not manual)
+    if (field === 'pricePerUnit' && !newSubUnits[index].manualConversionRate) {
       const conversionRate = calculateConversionRate(
         newSubUnits[index].name,
         formData.sellingPrice,
-        field === 'pricePerUnit' ? value : newSubUnits[index].pricePerUnit
+        value
       );
       newSubUnits[index].conversionRate = conversionRate;
-      
-      // Set profit margin based on unit type
-      if (field === 'name') {
-        newSubUnits[index].profitMargin = value === 'kasuku' ? 60 : value === 'bucket' ? 100 : 0;
+    }
+    
+    // Set profit margin based on unit type
+    if (field === 'name') {
+      newSubUnits[index].profitMargin = value === 'kasuku' ? 60 : value === 'bucket' ? 100 : 0;
+      if (!newSubUnits[index].manualConversionRate) {
+        newSubUnits[index].conversionRate = calculateConversionRate(
+          value,
+          formData.sellingPrice,
+          newSubUnits[index].pricePerUnit
+        );
       }
+    }
+
+    // Toggle manual conversion rate
+    if (field === 'manualConversionRate') {
+      newSubUnits[index][field] = value;
+      if (!value && newSubUnits[index].pricePerUnit) {
+        // Recalculate if switching back to auto
+        newSubUnits[index].conversionRate = calculateConversionRate(
+          newSubUnits[index].name,
+          formData.sellingPrice,
+          newSubUnits[index].pricePerUnit
+        );
+      }
+    }
+
+    // Allow manual editing of conversion rate
+    if (field === 'conversionRate') {
+      newSubUnits[index].manualConversionRate = true;
     }
     
     setFormData({ ...formData, subUnits: newSubUnits });
   };
 
-  // Recalculate conversion rates when selling price changes
   const handleSellingPriceChange = (value) => {
-    const updatedSubUnits = formData.subUnits.map(subUnit => ({
-      ...subUnit,
-      conversionRate: calculateConversionRate(
-        subUnit.name,
-        value,
-        subUnit.pricePerUnit
-      )
-    }));
+    const updatedSubUnits = formData.subUnits.map(subUnit => {
+      if (subUnit.manualConversionRate) return subUnit; // Don't recalculate manual rates
+      
+      return {
+        ...subUnit,
+        conversionRate: calculateConversionRate(
+          subUnit.name,
+          value,
+          subUnit.pricePerUnit
+        )
+      };
+    });
     
     setFormData({
       ...formData,
@@ -268,13 +339,13 @@ export default function Products() {
 
         const products = jsonData.map(row => {
           const sellingPrice = parseFloat(row['Selling Price'] || row.sellingPrice || 0);
+          const bagSize = parseFloat(row['Bag Size (kg)'] || row.bagSize || 50);
           const kgPrice = parseFloat(row['Price Per Kg'] || row.pricePerKg || 0);
           const kasukuPrice = parseFloat(row['Price Per Kasuku'] || row.pricePerKasuku || 0);
           const bucketPrice = parseFloat(row['Price Per Bucket'] || row.pricePerBucket || 0);
 
           const subUnits = [];
 
-          // Add kg sub-unit if price is provided
           if (kgPrice > 0) {
             const conversionRate = sellingPrice / kgPrice;
             subUnits.push({
@@ -285,7 +356,6 @@ export default function Products() {
             });
           }
 
-          // Add kasuku sub-unit if price is provided
           if (kasukuPrice > 0) {
             const conversionRate = (sellingPrice + 60) / kasukuPrice;
             subUnits.push({
@@ -296,7 +366,6 @@ export default function Products() {
             });
           }
 
-          // Add bucket sub-unit if price is provided
           if (bucketPrice > 0) {
             const conversionRate = (sellingPrice + 100) / bucketPrice;
             subUnits.push({
@@ -312,6 +381,7 @@ export default function Products() {
             category: row.Category || row.category,
             description: row.Description || row.description || '',
             baseUnit: row['Base Unit'] || row.baseUnit || 'bag',
+            baseUnitSize: bagSize,
             buyingPrice: parseFloat(row['Buying Price'] || row.buyingPrice || 0),
             sellingPrice: sellingPrice,
             quantity: parseInt(row.Quantity || row.quantity || 0),
@@ -352,16 +422,18 @@ export default function Products() {
           <h1 className="text-3xl font-bold">Products</h1>
           <p className="text-gray-600">Manage your product inventory</p>
         </div>
-        <div className="flex space-x-2">
-          <Button onClick={() => setIsImportDialogOpen(true)}>
-            <Upload className="mr-2 h-4 w-4" />
-            Import Excel
-          </Button>
-          <Button onClick={() => { resetForm(); setIsDialogOpen(true); }}>
-            <Plus className="mr-2 h-4 w-4" />
-            Add Product
-          </Button>
-        </div>
+        {canEditProducts && (
+          <div className="flex space-x-2">
+            <Button onClick={() => setIsImportDialogOpen(true)}>
+              <Upload className="mr-2 h-4 w-4" />
+              Import Excel
+            </Button>
+            <Button onClick={() => { resetForm(); setIsDialogOpen(true); }}>
+              <Plus className="mr-2 h-4 w-4" />
+              Add Product
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Filters */}
@@ -394,364 +466,94 @@ export default function Products() {
         </CardContent>
       </Card>
 
-      {/* Products Table */}
+      {/* Products Table - With horizontal scroll container */}
       <Card>
         <CardHeader>
           <CardTitle>All Products</CardTitle>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Barcode</TableHead>
-                <TableHead>Buying Price</TableHead>
-                <TableHead>Selling Price</TableHead>
-                <TableHead>Quantity</TableHead>
-                <TableHead>Units</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {products.map((product) => (
-                <TableRow key={product._id}>
-                  <TableCell className="font-medium">{product.name}</TableCell>
-                  <TableCell>{product.category}</TableCell>
-                  <TableCell>
-                    {product.barcode || (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleGenerateBarcode(product._id)}
-                      >
-                        <Barcode className="h-4 w-4" />
-                      </Button>
-                    )}
-                  </TableCell>
-                  <TableCell>{formatCurrency(product.buyingPrice)}</TableCell>
-                  <TableCell>{formatCurrency(product.sellingPrice)}</TableCell>
-                  <TableCell>
-                    {product.quantity} {product.baseUnit}
-                    {product.openedBags > 0 && (
-                      <span className="text-xs text-orange-600 block">
-                        ({product.openedBags} opened)
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell>
-                    {product.hasMultipleUnits ? (
-                      <Badge variant="default">Multi-Unit</Badge>
-                    ) : (
-                      <Badge variant="secondary">Single</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell>{getStockBadge(product)}</TableCell>
-                  <TableCell>
-                    <div className="flex space-x-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleEdit(product)}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => handleDelete(product._id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Barcode</TableHead>
+                  <TableHead>Bag Size (kg)</TableHead>
+                  <TableHead>Buying Price</TableHead>
+                  <TableHead>Selling Price</TableHead>
+                  <TableHead>Quantity</TableHead>
+                  <TableHead>Units</TableHead>
+                  <TableHead>Status</TableHead>
+                  {canEditProducts && <TableHead>Actions</TableHead>}
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {products.map((product) => (
+                  <TableRow key={product._id}>
+                    <TableCell className="font-medium">{product.name}</TableCell>
+                    <TableCell>{product.category}</TableCell>
+                    <TableCell>
+                      {product.barcode || (
+                        canEditProducts && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleGenerateBarcode(product._id)}
+                          >
+                            <Barcode className="h-4 w-4" />
+                          </Button>
+                        )
+                      )}
+                    </TableCell>
+                    <TableCell>{product.baseUnitSize || 50} kg</TableCell>
+                    <TableCell>{formatCurrency(product.buyingPrice)}</TableCell>
+                    <TableCell>{formatCurrency(product.sellingPrice)}</TableCell>
+                    <TableCell>
+                      {product.quantity} {product.baseUnit}
+                      {product.openedBags > 0 && (
+                        <span className="text-xs text-orange-600 block">
+                          ({product.openedBags} opened)
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {product.hasMultipleUnits ? (
+                        <Badge variant="default">Multi-Unit</Badge>
+                      ) : (
+                        <Badge variant="secondary">Single</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell>{getStockBadge(product)}</TableCell>
+                    {canEditProducts && (
+                      <TableCell>
+                        <div className="flex space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleEdit(product)}
+                          >
+                            <Edit className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDelete(product._id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
-      {/* Add/Edit Product Dialog */}
-      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleSubmit}>
-            <div className="grid grid-cols-2 gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">Product Name *</Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="category">Category *</Label>
-                <Input
-                  id="category"
-                  value={formData.category}
-                  onChange={(e) => setFormData({...formData, category: e.target.value})}
-                  required
-                />
-              </div>
-
-              <div className="col-span-2 space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Input
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({...formData, description: e.target.value})}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="baseUnit">Base Unit *</Label>
-                <Select 
-                  value={formData.baseUnit} 
-                  onValueChange={(value) => setFormData({...formData, baseUnit: value})}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="bag">Bag</SelectItem>
-                    <SelectItem value="kg">Kilogram (kg)</SelectItem>
-                    <SelectItem value="piece">Piece</SelectItem>
-                    <SelectItem value="g">Grams</SelectItem>
-                    <SelectItem value="liter">Liter</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="buyingPrice">Buying Price (per {formData.baseUnit}) *</Label>
-                <Input
-                  id="buyingPrice"
-                  type="number"
-                  step="0.01"
-                  value={formData.buyingPrice}
-                  onChange={(e) => setFormData({...formData, buyingPrice: e.target.value})}
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="sellingPrice">Selling Price (per {formData.baseUnit}) *</Label>
-                <Input
-                  id="sellingPrice"
-                  type="number"
-                  step="0.01"
-                  value={formData.sellingPrice}
-                  onChange={(e) => handleSellingPriceChange(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="quantity">Quantity ({formData.baseUnit}s) *</Label>
-                <Input
-                  id="quantity"
-                  type="number"
-                  step="0.01"
-                  value={formData.quantity}
-                  onChange={(e) => setFormData({...formData, quantity: e.target.value})}
-                  required
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="reorderLevel">Reorder Level</Label>
-                <Input
-                  id="reorderLevel"
-                  type="number"
-                  value={formData.reorderLevel}
-                  onChange={(e) => setFormData({...formData, reorderLevel: e.target.value})}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="supplier">Supplier</Label>
-                <Input
-                  id="supplier"
-                  value={formData.supplier}
-                  onChange={(e) => setFormData({...formData, supplier: e.target.value})}
-                />
-              </div>
-
-              {/* Multiple Units Toggle */}
-              <div className="col-span-2 flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="hasMultipleUnits"
-                  checked={formData.hasMultipleUnits}
-                  onChange={(e) => setFormData({...formData, hasMultipleUnits: e.target.checked})}
-                  className="h-4 w-4"
-                />
-                <Label htmlFor="hasMultipleUnits">This product can be sold in multiple units</Label>
-              </div>
-
-              {/* Sub-Units Section */}
-              {formData.hasMultipleUnits && (
-                <div className="col-span-2 space-y-4">
-                  <div className="flex justify-between items-center">
-                    <h3 className="text-lg font-semibold">Sub-Units</h3>
-                    <Button type="button" onClick={addSubUnit} size="sm">
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Sub-Unit
-                    </Button>
-                  </div>
-
-                  {formData.subUnits.map((subUnit, index) => (
-                    <Card key={index} className="p-4">
-                      <div className="grid grid-cols-4 gap-4">
-                        <div className="space-y-2">
-                          <Label>Unit Type</Label>
-                          <Select
-                            value={subUnit.name}
-                            onValueChange={(value) => updateSubUnit(index, 'name', value)}
-                          >
-                            <SelectTrigger>
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="kg">Kilogram (kg)</SelectItem>
-                              <SelectItem value="kasuku">Kasuku</SelectItem>
-                              <SelectItem value="bucket">Bucket</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Price per {subUnit.name}</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            placeholder="0.00"
-                            value={subUnit.pricePerUnit}
-                            onChange={(e) => updateSubUnit(index, 'pricePerUnit', e.target.value)}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Conversion Rate (auto)</Label>
-                          <Input
-                            type="number"
-                            step="0.01"
-                            value={subUnit.conversionRate}
-                            readOnly
-                            className="bg-gray-100"
-                            title="Automatically calculated"
-                          />
-                          <p className="text-xs text-gray-500">
-                            {subUnit.conversionRate} {subUnit.name}s per {formData.baseUnit}
-                          </p>
-                        </div>
-
-                        <div className="space-y-2">
-                          <Label>Profit Margin</Label>
-                          <Input
-                            type="number"
-                            value={subUnit.profitMargin}
-                            readOnly
-                            className="bg-gray-100"
-                          />
-                          <p className="text-xs text-gray-500">
-                            Auto-set based on unit type
-                          </p>
-                        </div>
-
-                        <div className="col-span-4 flex justify-end">
-                          <Button
-                            type="button"
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => removeSubUnit(index)}
-                          >
-                            <X className="mr-2 h-4 w-4" />
-                            Remove
-                          </Button>
-                        </div>
-                      </div>
-                    </Card>
-                  ))}
-
-                  {formData.subUnits.length === 0 && (
-                    <div className="text-center py-4 text-gray-500">
-                      No sub-units added. Click "Add Sub-Unit" to add selling units.
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit">
-                {editingProduct ? 'Update' : 'Create'} Product
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Import Excel Dialog */}
-      <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Import Products from Excel</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label>Excel File Format</Label>
-              <div className="text-sm text-gray-600 space-y-1">
-                <p>Your Excel file should have the following columns:</p>
-                <ul className="list-disc list-inside pl-4 space-y-1">
-                  <li><strong>Name</strong> (required)</li>
-                  <li><strong>Category</strong> (required)</li>
-                  <li><strong>Description</strong></li>
-                  <li><strong>Base Unit</strong> (e.g., bag, kg, piece)</li>
-                  <li><strong>Buying Price</strong> (required)</li>
-                  <li><strong>Selling Price</strong> (required - for base unit)</li>
-                  <li><strong>Price Per Kg</strong> (optional - for kg sub-unit)</li>
-                  <li><strong>Price Per Kasuku</strong> (optional - for kasuku sub-unit)</li>
-                  <li><strong>Price Per Bucket</strong> (optional - for bucket sub-unit)</li>
-                  <li><strong>Quantity</strong> (required)</li>
-                  <li><strong>Reorder Level</strong></li>
-                  <li><strong>Supplier</strong></li>
-                </ul>
-                <div className="mt-3 p-3 bg-blue-50 rounded-lg">
-                  <p className="font-semibold text-blue-900 mb-2">✨ Auto-Calculation Feature:</p>
-                  <ul className="text-xs space-y-1 text-blue-800">
-                    <li>• Conversion rates are <strong>automatically calculated</strong></li>
-                    <li>• Kasuku formula: (Selling Price + 60) ÷ Price Per Kasuku</li>
-                    <li>• Bucket formula: (Selling Price + 100) ÷ Price Per Bucket</li>
-                    <li>• Kg formula: Selling Price ÷ Price Per Kg</li>
-                    <li>• Just provide the unit prices - we'll handle the rest!</li>
-                  </ul>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="file">Select Excel File</Label>
-              <Input
-                id="file"
-                type="file"
-                accept=".xlsx,.xls"
-                onChange={handleImportExcel}
-              />
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Add/Edit Product Dialog - Continued in next message due to length... */}
     </div>
   );
 }
