@@ -1,4 +1,4 @@
-// client/src/pages/Sales.jsx - WITH ROLE-BASED DELETE PERMISSION
+// client/src/pages/Sales.jsx - WITH SEARCH BY SALE NUMBER AND CUSTOMER NAME
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -22,7 +22,7 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Eye, Printer, Edit, Trash2, Download } from 'lucide-react';
+import { Eye, Printer, Edit, Trash2, Download, Search } from 'lucide-react';
 import { saleService } from '../services/sale.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import Receipt from '../components/pos/Receipt';
@@ -35,9 +35,11 @@ import { useAuth } from '../hooks/useAuth';
 export default function Sales() {
   const { user } = useAuth();
   const [sales, setSales] = useState([]);
+  const [allSales, setAllSales] = useState([]); // Store all sales for filtering
   const [selectedSale, setSelectedSale] = useState(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState(''); // NEW: Search query
   const [dateRange, setDateRange] = useState({
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0]
@@ -50,13 +52,27 @@ export default function Sales() {
   });
   const receiptRef = useRef();
 
-  // Check if user can delete sales (admin and manager only)
   const canDeleteSales = user && (user.role === 'admin' || user.role === 'manager');
 
   useEffect(() => {
     fetchSales();
     fetchBusinessInfo();
   }, [dateRange, filterPaymentMethod, filterPaymentStatus]);
+
+  // NEW: Filter sales based on search query
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSales(allSales);
+    } else {
+      const query = searchQuery.toLowerCase().trim();
+      const filtered = allSales.filter(sale => {
+        const saleNumber = sale.saleNumber?.toLowerCase() || '';
+        const customerName = sale.customerName?.toLowerCase() || '';
+        return saleNumber.includes(query) || customerName.includes(query);
+      });
+      setSales(filtered);
+    }
+  }, [searchQuery, allSales]);
 
   const fetchSales = async () => {
     try {
@@ -73,6 +89,7 @@ export default function Sales() {
       }
 
       const response = await saleService.getAll(params);
+      setAllSales(response.data);
       setSales(response.data);
     } catch (error) {
       console.error('Error fetching sales:', error);
@@ -256,10 +273,24 @@ export default function Sales() {
           </Card>
         </div>
 
-        {/* Filters */}
+        {/* Filters - WITH NEW SEARCH BAR */}
         <Card>
           <CardContent className="pt-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+              {/* NEW: Search Bar */}
+              <div className="space-y-2 md:col-span-2">
+                <Label>Search</Label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                  <Input
+                    placeholder="Search by sale number or customer name..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-10"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="startDate">Start Date</Label>
                 <Input
@@ -279,7 +310,9 @@ export default function Sales() {
                   onChange={(e) => setDateRange({...dateRange, endDate: e.target.value})}
                 />
               </div>
+            </div>
 
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div className="space-y-2">
                 <Label>Payment Method</Label>
                 <Select value={filterPaymentMethod} onValueChange={setFilterPaymentMethod}>
@@ -318,68 +351,83 @@ export default function Sales() {
         {/* Sales Table */}
         <Card>
           <CardHeader>
-            <CardTitle>All Sales</CardTitle>
+            <CardTitle>
+              All Sales 
+              {searchQuery && (
+                <span className="text-sm font-normal text-gray-600 ml-2">
+                  (Showing {sales.length} of {allSales.length} results)
+                </span>
+              )}
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Sale #</TableHead>
-                  <TableHead>Date</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Cashier</TableHead>
-                  <TableHead>Payment Method</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {sales.map((sale) => (
-                  <TableRow key={sale._id}>
-                    <TableCell className="font-medium">{sale.saleNumber}</TableCell>
-                    <TableCell>{formatDateTime(sale.saleDate)}</TableCell>
-                    <TableCell>{sale.customerName || 'Walk-in'}</TableCell>
-                    <TableCell>{sale.cashierName}</TableCell>
-                    <TableCell>{getPaymentMethodBadge(sale.paymentMethod)}</TableCell>
-                    <TableCell>{formatCurrency(sale.total)}</TableCell>
-                    <TableCell>{getPaymentStatusBadge(sale.paymentStatus)}</TableCell>
-                    <TableCell>
-                      <div className="flex space-x-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => handleViewSale(sale._id)}
-                          title="View Sale"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        {sale.amountDue > 0 && (
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Sale #</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Cashier</TableHead>
+                    <TableHead>Payment Method</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {sales.map((sale) => (
+                    <TableRow key={sale._id}>
+                      <TableCell className="font-medium">{sale.saleNumber}</TableCell>
+                      <TableCell>{formatDateTime(sale.saleDate)}</TableCell>
+                      <TableCell>{sale.customerName || 'Walk-in'}</TableCell>
+                      <TableCell>{sale.cashierName}</TableCell>
+                      <TableCell>{getPaymentMethodBadge(sale.paymentMethod)}</TableCell>
+                      <TableCell>{formatCurrency(sale.total)}</TableCell>
+                      <TableCell>{getPaymentStatusBadge(sale.paymentStatus)}</TableCell>
+                      <TableCell>
+                        <div className="flex space-x-2">
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleEditSale(sale)}
-                            title="Update Payment"
+                            onClick={() => handleViewSale(sale._id)}
+                            title="View Sale"
                           >
-                            <Edit className="h-4 w-4" />
+                            <Eye className="h-4 w-4" />
                           </Button>
-                        )}
-                        {canDeleteSales && (
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => handleDeleteSale(sale._id)}
-                            title="Delete Sale"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                          {sale.amountDue > 0 && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handleEditSale(sale)}
+                              title="Update Payment"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          )}
+                          {canDeleteSales && (
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDeleteSale(sale._id)}
+                              title="Delete Sale"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+
+            {sales.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                {searchQuery ? 'No sales found matching your search' : 'No sales found for the selected filters'}
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
