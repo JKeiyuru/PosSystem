@@ -1,4 +1,4 @@
-// client/src/pages/Stock.jsx
+// client/src/pages/Stock.jsx - UPDATED with Role-Based Visibility
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -20,18 +20,26 @@ import {
   TableHeader, 
   TableRow 
 } from '../components/ui/table';
-import { Plus, PackagePlus, History } from 'lucide-react';
+import { Plus, PackagePlus, History, Download } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { stockService } from '../services/stock.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
+import { useAuth } from '../hooks/useAuth';
+import * as XLSX from 'xlsx';
 
 export default function Stock() {
+  const { user } = useAuth();
   const [products, setProducts] = useState([]);
   const [movements, setMovements] = useState([]);
   const [stockValue, setStockValue] = useState(null);
   const [isRestockDialogOpen, setIsRestockDialogOpen] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedProductMovements, setSelectedProductMovements] = useState(null);
+  const [showMovementsDialog, setShowMovementsDialog] = useState(false);
+
+  // Check if user can see stock cards (admin and manager only)
+  const canViewStockCards = user && (user.role === 'admin' || user.role === 'manager');
 
   useEffect(() => {
     fetchProducts();
@@ -66,6 +74,37 @@ export default function Stock() {
     }
   };
 
+  const fetchProductMovements = async (productId, productName) => {
+    try {
+      const response = await stockService.getMovements({ productId });
+      setSelectedProductMovements({
+        productName,
+        movements: response.data
+      });
+      setShowMovementsDialog(true);
+    } catch (error) {
+      console.error('Error fetching product movements:', error);
+    }
+  };
+
+  const exportProductMovements = (productName, movements) => {
+    const exportData = movements.map(movement => ({
+      'Date': formatDateTime(movement.createdAt),
+      'Type': movement.movementType,
+      'Quantity': movement.quantity,
+      'Previous Quantity': movement.previousQuantity,
+      'New Quantity': movement.newQuantity,
+      'Reference': movement.reference || '',
+      'Notes': movement.notes || '',
+      'Performed By': movement.performedBy?.name || ''
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(exportData);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Stock Movement');
+    XLSX.writeFile(wb, `Stock_Movement_${productName}_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   const handleAddProduct = () => {
     setSelectedProducts([...selectedProducts, {
       productId: '',
@@ -84,7 +123,6 @@ export default function Stock() {
     const updated = [...selectedProducts];
     updated[index][field] = value;
 
-    // Auto-fill prices when product is selected
     if (field === 'productId' && value) {
       const product = products.find(p => p._id === value);
       if (product) {
@@ -130,7 +168,8 @@ export default function Stock() {
       sale: { label: 'Sale', color: 'bg-blue-100 text-blue-800' },
       adjustment: { label: 'Adjustment', color: 'bg-yellow-100 text-yellow-800' },
       return: { label: 'Return', color: 'bg-purple-100 text-purple-800' },
-      damaged: { label: 'Damaged', color: 'bg-red-100 text-red-800' }
+      damaged: { label: 'Damaged', color: 'bg-red-100 text-red-800' },
+      production: { label: 'Production', color: 'bg-indigo-100 text-indigo-800' }
     };
     const typeInfo = types[type] || types.adjustment;
     return (
@@ -153,8 +192,8 @@ export default function Stock() {
         </Button>
       </div>
 
-      {/* Stock Value Cards */}
-      {stockValue && (
+      {/* Stock Value Cards - Only for Admin/Manager */}
+      {canViewStockCards && stockValue && (
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
@@ -219,6 +258,7 @@ export default function Stock() {
                 <TableHead>Buying Price</TableHead>
                 <TableHead>Selling Price</TableHead>
                 <TableHead>Stock Value</TableHead>
+                {canViewStockCards && <TableHead>Actions</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -232,13 +272,25 @@ export default function Stock() {
                       product.quantity <= product.reorderLevel ? 'text-yellow-600 font-semibold' :
                       'text-green-600'
                     }>
-                      {product.quantity} {product.unit}
+                      {product.quantity} {product.baseUnit}
                     </span>
                   </TableCell>
-                  <TableCell>{product.reorderLevel} {product.unit}</TableCell>
+                  <TableCell>{product.reorderLevel} {product.baseUnit}</TableCell>
                   <TableCell>{formatCurrency(product.buyingPrice)}</TableCell>
                   <TableCell>{formatCurrency(product.sellingPrice)}</TableCell>
                   <TableCell>{formatCurrency(product.quantity * product.buyingPrice)}</TableCell>
+                  {canViewStockCards && (
+                    <TableCell>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => fetchProductMovements(product._id, product.name)}
+                      >
+                        <History className="h-4 w-4 mr-1" />
+                        View History
+                      </Button>
+                    </TableCell>
+                  )}
                 </TableRow>
               ))}
             </TableBody>
@@ -246,47 +298,108 @@ export default function Stock() {
         </CardContent>
       </Card>
 
-      {/* Recent Stock Movements */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center space-x-2">
-            <History className="h-5 w-5" />
-            <span>Recent Stock Movements</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Date</TableHead>
-                <TableHead>Product</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Quantity</TableHead>
-                <TableHead>Previous</TableHead>
-                <TableHead>New</TableHead>
-                <TableHead>Performed By</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {movements.slice(0, 10).map((movement) => (
-                <TableRow key={movement._id}>
-                  <TableCell>{formatDateTime(movement.createdAt)}</TableCell>
-                  <TableCell>{movement.product?.name}</TableCell>
-                  <TableCell>{getMovementTypeBadge(movement.movementType)}</TableCell>
-                  <TableCell>
-                    <span className={movement.quantity > 0 ? 'text-green-600' : 'text-red-600'}>
-                      {movement.quantity > 0 ? '+' : ''}{movement.quantity}
-                    </span>
-                  </TableCell>
-                  <TableCell>{movement.previousQuantity}</TableCell>
-                  <TableCell>{movement.newQuantity}</TableCell>
-                  <TableCell>{movement.performedBy?.name}</TableCell>
+      {/* Recent Stock Movements - Only for Admin/Manager */}
+      {canViewStockCards && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center space-x-2">
+              <History className="h-5 w-5" />
+              <span>Recent Stock Movements</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Product</TableHead>
+                  <TableHead>Type</TableHead>
+                  <TableHead>Quantity</TableHead>
+                  <TableHead>Previous</TableHead>
+                  <TableHead>New</TableHead>
+                  <TableHead>Performed By</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              </TableHeader>
+              <TableBody>
+                {movements.slice(0, 10).map((movement) => (
+                  <TableRow key={movement._id}>
+                    <TableCell>{formatDateTime(movement.createdAt)}</TableCell>
+                    <TableCell>{movement.product?.name}</TableCell>
+                    <TableCell>{getMovementTypeBadge(movement.movementType)}</TableCell>
+                    <TableCell>
+                      <span className={movement.quantity > 0 ? 'text-green-600' : 'text-red-600'}>
+                        {movement.quantity > 0 ? '+' : ''}{movement.quantity}
+                      </span>
+                    </TableCell>
+                    <TableCell>{movement.previousQuantity}</TableCell>
+                    <TableCell>{movement.newQuantity}</TableCell>
+                    <TableCell>{movement.performedBy?.name}</TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Product Movement History Dialog */}
+      <Dialog open={showMovementsDialog} onOpenChange={setShowMovementsDialog}>
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Stock Movement History - {selectedProductMovements?.productName}
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedProductMovements && (
+            <div className="space-y-4">
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => exportProductMovements(
+                    selectedProductMovements.productName,
+                    selectedProductMovements.movements
+                  )}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Export to Excel
+                </Button>
+              </div>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Quantity Change</TableHead>
+                    <TableHead>Previous Qty</TableHead>
+                    <TableHead>New Qty</TableHead>
+                    <TableHead>Reference</TableHead>
+                    <TableHead>Performed By</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {selectedProductMovements.movements.map((movement) => (
+                    <TableRow key={movement._id}>
+                      <TableCell>{formatDateTime(movement.createdAt)}</TableCell>
+                      <TableCell>{getMovementTypeBadge(movement.movementType)}</TableCell>
+                      <TableCell>
+                        <span className={movement.quantity > 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                          {movement.quantity > 0 ? '+' : ''}{movement.quantity}
+                        </span>
+                      </TableCell>
+                      <TableCell>{movement.previousQuantity}</TableCell>
+                      <TableCell>{movement.newQuantity}</TableCell>
+                      <TableCell>{movement.reference || movement.notes || '-'}</TableCell>
+                      <TableCell>{movement.performedBy?.name || '-'}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Bulk Restock Dialog */}
       <Dialog open={isRestockDialogOpen} onOpenChange={setIsRestockDialogOpen}>
