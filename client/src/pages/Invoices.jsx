@@ -1,9 +1,11 @@
 /* eslint-disable react-hooks/exhaustive-deps */
-// client/src/pages/Invoices.jsx
+// client/src/pages/Invoices.jsx - COMPLETELY RESTRUCTURED
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 import { 
   Table, 
   TableBody, 
@@ -17,41 +19,76 @@ import {
   DialogContent, 
   DialogHeader, 
   DialogTitle,
+  DialogFooter
 } from '../components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Eye, Download } from 'lucide-react';
+import { Alert, AlertDescription } from '../components/ui/alert';
+import { Eye, Download, Plus, X, AlertTriangle } from 'lucide-react';
 import { invoiceService } from '../services/invoice.service';
-import { formatCurrency, formatDate } from '../lib/utils';
+import { productService } from '../services/product.service';
+import { formatCurrency, formatDate, formatDateTime } from '../lib/utils';
+import api from '../services/api';
+import { useAuth } from '../hooks/useAuth';
 
 export default function Invoices() {
-  const [invoices, setInvoices] = useState([]);
+  const { user } = useAuth();
+  const [outgoingInvoices, setOutgoingInvoices] = useState([]);
+  const [receivingInvoices, setReceivingInvoices] = useState([]);
+  const [products, setProducts] = useState([]);
   const [selectedInvoice, setSelectedInvoice] = useState(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
-  const [filterType, setFilterType] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [isReceiveDialogOpen, setIsReceiveDialogOpen] = useState(false);
+  const [priceChangeNotifications, setPriceChangeNotifications] = useState([]);
+  
+  const [receiveFormData, setReceiveFormData] = useState({
+    invoiceNumber: '',
+    date: new Date().toISOString().split('T')[0],
+    supplier: '',
+    productId: '',
+    quantity: '',
+    buyingPrice: '',
+    notes: ''
+  });
+
+  const isAdmin = user && (user.role === 'admin' || user.role === 'manager');
 
   useEffect(() => {
-    fetchInvoices();
-  }, [filterType, filterStatus]);
+    fetchOutgoingInvoices();
+    fetchReceivingInvoices();
+    fetchProducts();
+  }, []);
 
-  const fetchInvoices = async () => {
+  const fetchOutgoingInvoices = async () => {
     try {
-      const params = {};
-      if (filterType && filterType !== 'all') {
-        params.type = filterType;
-      }
-      if (filterStatus && filterStatus !== 'all') {
-        params.status = filterStatus;
-      }
-      const response = await invoiceService.getAll(params);
-      setInvoices(response.data);
+      const response = await invoiceService.getAll();
+      setOutgoingInvoices(response.data);
     } catch (error) {
-      console.error('Error fetching invoices:', error);
+      console.error('Error fetching outgoing invoices:', error);
     }
   };
 
-  const handleViewInvoice = async (id) => {
+  const fetchReceivingInvoices = async () => {
+    try {
+      // Fetch receiving invoices from backend
+      const response = await api.get('/receiving-invoices');
+      setReceivingInvoices(response.data.data || []);
+    } catch (error) {
+      console.error('Error fetching receiving invoices:', error);
+    }
+  };
+
+  const fetchProducts = async () => {
+    try {
+      const response = await productService.getAll();
+      setProducts(response.data);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    }
+  };
+
+  const handleViewOutgoingInvoice = async (id) => {
     try {
       const response = await invoiceService.getById(id);
       setSelectedInvoice(response.data);
@@ -61,20 +98,105 @@ export default function Invoices() {
     }
   };
 
-  const handleUpdateStatus = async (id, status) => {
+  const handleUpdateInvoiceStatus = async (id, status) => {
     try {
       await invoiceService.updateStatus(id, status, status === 'paid' ? new Date() : null);
-      fetchInvoices();
+      fetchOutgoingInvoices();
       if (selectedInvoice && selectedInvoice._id === id) {
-        handleViewInvoice(id);
+        handleViewOutgoingInvoice(id);
       }
     } catch (error) {
       console.error('Error updating invoice status:', error);
     }
   };
 
-  const handlePrintInvoice = () => {
-    window.print();
+  const handleReceiveGoods = async () => {
+    try {
+      if (!receiveFormData.productId || !receiveFormData.quantity || !receiveFormData.buyingPrice) {
+        alert('Please fill in all required fields');
+        return;
+      }
+
+      const selectedProduct = products.find(p => p._id === receiveFormData.productId);
+      if (!selectedProduct) {
+        alert('Selected product not found');
+        return;
+      }
+
+      const newBuyingPrice = parseFloat(receiveFormData.buyingPrice);
+      const currentBuyingPrice = selectedProduct.buyingPrice;
+      
+      // Check if buying price changed
+      let priceChanged = false;
+      if (Math.abs(newBuyingPrice - currentBuyingPrice) > 0.01) {
+        priceChanged = true;
+      }
+
+      // Create receiving invoice
+      const invoiceData = {
+        invoiceNumber: receiveFormData.invoiceNumber,
+        date: receiveFormData.date,
+        supplier: receiveFormData.supplier,
+        product: receiveFormData.productId,
+        productName: selectedProduct.name,
+        quantity: parseFloat(receiveFormData.quantity),
+        buyingPrice: newBuyingPrice,
+        previousBuyingPrice: currentBuyingPrice,
+        priceChanged: priceChanged,
+        notes: receiveFormData.notes,
+        receivedBy: user.id,
+        receivedByName: user.name
+      };
+
+      const response = await api.post('/receiving-invoices', invoiceData);
+
+      if (response.data.success) {
+        // Show price change notification if applicable
+        if (priceChanged && isAdmin) {
+          const notification = {
+            id: Date.now(),
+            productName: selectedProduct.name,
+            previousPrice: currentBuyingPrice,
+            newPrice: newBuyingPrice,
+            invoiceNumber: receiveFormData.invoiceNumber,
+            date: new Date()
+          };
+          setPriceChangeNotifications([notification, ...priceChangeNotifications]);
+        }
+
+        alert('Goods received successfully! Inventory has been updated.');
+        setIsReceiveDialogOpen(false);
+        setReceiveFormData({
+          invoiceNumber: '',
+          date: new Date().toISOString().split('T')[0],
+          supplier: '',
+          productId: '',
+          quantity: '',
+          buyingPrice: '',
+          notes: ''
+        });
+        fetchReceivingInvoices();
+        fetchProducts();
+      }
+    } catch (error) {
+      console.error('Error receiving goods:', error);
+      alert('Error receiving goods: ' + (error.response?.data?.message || error.message));
+    }
+  };
+
+  const handleProductSelect = (productId) => {
+    const product = products.find(p => p._id === productId);
+    if (product) {
+      setReceiveFormData({
+        ...receiveFormData,
+        productId,
+        buyingPrice: product.buyingPrice.toString()
+      });
+    }
+  };
+
+  const dismissNotification = (notificationId) => {
+    setPriceChangeNotifications(priceChangeNotifications.filter(n => n.id !== notificationId));
   };
 
   const getTypeBadge = (type) => {
@@ -100,104 +222,304 @@ export default function Invoices() {
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-3xl font-bold">Invoices & Notes</h1>
-          <p className="text-gray-600">Manage invoices, credit notes, and debit notes</p>
+          <h1 className="text-3xl font-bold">Invoices</h1>
+          <p className="text-gray-600">Manage incoming and outgoing invoices</p>
         </div>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <Select value={filterType} onValueChange={setFilterType}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Types" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  <SelectItem value="invoice">Invoice</SelectItem>
-                  <SelectItem value="credit_note">Credit Note</SelectItem>
-                  <SelectItem value="debit_note">Debit Note</SelectItem>
-                </SelectContent>
-              </Select>
+      {/* Price Change Notifications - Only for Admins */}
+      {isAdmin && priceChangeNotifications.length > 0 && (
+        <div className="space-y-2">
+          {priceChangeNotifications.map((notification) => (
+            <Alert key={notification.id} className="border-orange-300 bg-orange-50">
+              <AlertTriangle className="h-4 w-4 text-orange-600" />
+              <AlertDescription className="flex items-center justify-between">
+                <div>
+                  <strong>Price Change Alert:</strong> {notification.productName} buying price changed from{' '}
+                  {formatCurrency(notification.previousPrice)} to {formatCurrency(notification.newPrice)}{' '}
+                  (Invoice: {notification.invoiceNumber}) - {formatDateTime(notification.date)}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => dismissNotification(notification.id)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ))}
+        </div>
+      )}
+
+      {/* Tabs for Two Sections */}
+      <Tabs defaultValue="to-us" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-2">
+          <TabsTrigger value="to-us">Invoices To Us (Receiving)</TabsTrigger>
+          <TabsTrigger value="from-us">Invoices From Us (Outgoing)</TabsTrigger>
+        </TabsList>
+
+        {/* SECTION 1: Invoices To Us (Receiving Stock) */}
+        <TabsContent value="to-us" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Receive Goods from Suppliers</CardTitle>
+              <Button onClick={() => setIsReceiveDialogOpen(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Receive Goods
+              </Button>
+            </CardHeader>
+            <CardContent>
+              <p className="text-sm text-gray-600 mb-4">
+                Use this section to record deliveries from suppliers. This will automatically update inventory.
+              </p>
+
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice #</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Supplier</TableHead>
+                    <TableHead>Product</TableHead>
+                    <TableHead>Quantity</TableHead>
+                    <TableHead>Buying Price</TableHead>
+                    <TableHead>Price Change</TableHead>
+                    <TableHead>Received By</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {receivingInvoices.map((invoice) => (
+                    <TableRow key={invoice._id}>
+                      <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
+                      <TableCell>{formatDate(invoice.date)}</TableCell>
+                      <TableCell>{invoice.supplier}</TableCell>
+                      <TableCell>{invoice.productName}</TableCell>
+                      <TableCell>{invoice.quantity}</TableCell>
+                      <TableCell>{formatCurrency(invoice.buyingPrice)}</TableCell>
+                      <TableCell>
+                        {invoice.priceChanged ? (
+                          <Badge variant="warning">
+                            Changed from {formatCurrency(invoice.previousBuyingPrice)}
+                          </Badge>
+                        ) : (
+                          <Badge variant="secondary">No Change</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell>{invoice.receivedByName}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {receivingInvoices.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No receiving invoices recorded yet
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* SECTION 2: Invoices From Us (Outgoing) */}
+        <TabsContent value="from-us" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle>Outgoing Invoices</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Invoice #</TableHead>
+                    <TableHead>Type</TableHead>
+                    <TableHead>Customer</TableHead>
+                    <TableHead>Date</TableHead>
+                    <TableHead>Due Date</TableHead>
+                    <TableHead>Amount</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {outgoingInvoices.map((invoice) => (
+                    <TableRow key={invoice._id}>
+                      <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
+                      <TableCell>{getTypeBadge(invoice.type)}</TableCell>
+                      <TableCell>{invoice.customer?.name}</TableCell>
+                      <TableCell>{formatDate(invoice.createdAt)}</TableCell>
+                      <TableCell>{invoice.dueDate ? formatDate(invoice.dueDate) : '-'}</TableCell>
+                      <TableCell>{formatCurrency(invoice.total)}</TableCell>
+                      <TableCell>{getStatusBadge(invoice.status)}</TableCell>
+                      <TableCell>
+                        <div className="flex space-x-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleViewOutgoingInvoice(invoice._id)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => handleUpdateInvoiceStatus(invoice._id, 'paid')}
+                            >
+                              Mark Paid
+                            </Button>
+                          )}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+
+              {outgoingInvoices.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No outgoing invoices yet
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Receive Goods Dialog */}
+      <Dialog open={isReceiveDialogOpen} onOpenChange={setIsReceiveDialogOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Receive Goods from Supplier</DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4 py-4">
+            <Alert>
+              <AlertDescription>
+                Recording this delivery will automatically update the product's inventory and buying price if changed.
+              </AlertDescription>
+            </Alert>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="invoiceNumber">Invoice Number *</Label>
+                <Input
+                  id="invoiceNumber"
+                  placeholder="INV-2024-001"
+                  value={receiveFormData.invoiceNumber}
+                  onChange={(e) => setReceiveFormData({...receiveFormData, invoiceNumber: e.target.value})}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="date">Date *</Label>
+                <Input
+                  id="date"
+                  type="date"
+                  value={receiveFormData.date}
+                  onChange={(e) => setReceiveFormData({...receiveFormData, date: e.target.value})}
+                  required
+                />
+              </div>
+
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="supplier">Supplier Name *</Label>
+                <Input
+                  id="supplier"
+                  placeholder="Enter supplier name"
+                  value={receiveFormData.supplier}
+                  onChange={(e) => setReceiveFormData({...receiveFormData, supplier: e.target.value})}
+                  required
+                />
+              </div>
+
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="product">Product *</Label>
+                <Select 
+                  value={receiveFormData.productId} 
+                  onValueChange={handleProductSelect}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {products.map((product) => (
+                      <SelectItem key={product._id} value={product._id}>
+                        {product.name} (Current stock: {product.quantity} {product.baseUnit})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="quantity">Quantity Received *</Label>
+                <Input
+                  id="quantity"
+                  type="number"
+                  step="0.01"
+                  placeholder="0"
+                  value={receiveFormData.quantity}
+                  onChange={(e) => setReceiveFormData({...receiveFormData, quantity: e.target.value})}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="buyingPrice">Buying Price (per unit) *</Label>
+                <Input
+                  id="buyingPrice"
+                  type="number"
+                  step="0.01"
+                  placeholder="0.00"
+                  value={receiveFormData.buyingPrice}
+                  onChange={(e) => setReceiveFormData({...receiveFormData, buyingPrice: e.target.value})}
+                  required
+                />
+                {receiveFormData.productId && products.find(p => p._id === receiveFormData.productId) && (
+                  <p className="text-xs text-gray-600">
+                    Current buying price: {formatCurrency(products.find(p => p._id === receiveFormData.productId).buyingPrice)}
+                  </p>
+                )}
+              </div>
+
+              <div className="col-span-2 space-y-2">
+                <Label htmlFor="notes">Notes</Label>
+                <Input
+                  id="notes"
+                  placeholder="Optional notes..."
+                  value={receiveFormData.notes}
+                  onChange={(e) => setReceiveFormData({...receiveFormData, notes: e.target.value})}
+                />
+              </div>
             </div>
 
-            <div>
-              <Select value={filterStatus} onValueChange={setFilterStatus}>
-                <SelectTrigger>
-                  <SelectValue placeholder="All Statuses" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="draft">Draft</SelectItem>
-                  <SelectItem value="sent">Sent</SelectItem>
-                  <SelectItem value="paid">Paid</SelectItem>
-                  <SelectItem value="cancelled">Cancelled</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+            {receiveFormData.productId && receiveFormData.buyingPrice && products.find(p => p._id === receiveFormData.productId) && (
+              Math.abs(parseFloat(receiveFormData.buyingPrice) - products.find(p => p._id === receiveFormData.productId).buyingPrice) > 0.01 && (
+                <Alert className="border-orange-300 bg-orange-50">
+                  <AlertTriangle className="h-4 w-4 text-orange-600" />
+                  <AlertDescription>
+                    <strong>Price Change Detected:</strong> The buying price you entered differs from the current price. 
+                    {isAdmin ? ' You will be notified, and ' : ' Admin will be notified, and '}
+                    the system will automatically update the product's buying price.
+                  </AlertDescription>
+                </Alert>
+              )
+            )}
           </div>
-        </CardContent>
-      </Card>
 
-      {/* Invoices Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>All Invoices</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Invoice #</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Due Date</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {invoices.map((invoice) => (
-                <TableRow key={invoice._id}>
-                  <TableCell className="font-medium">{invoice.invoiceNumber}</TableCell>
-                  <TableCell>{getTypeBadge(invoice.type)}</TableCell>
-                  <TableCell>{invoice.customer?.name}</TableCell>
-                  <TableCell>{formatDate(invoice.createdAt)}</TableCell>
-                  <TableCell>{invoice.dueDate ? formatDate(invoice.dueDate) : '-'}</TableCell>
-                  <TableCell>{formatCurrency(invoice.total)}</TableCell>
-                  <TableCell>{getStatusBadge(invoice.status)}</TableCell>
-                  <TableCell>
-                    <div className="flex space-x-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleViewInvoice(invoice._id)}
-                      >
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      {invoice.status !== 'paid' && invoice.status !== 'cancelled' && (
-                        <Button
-                          size="sm"
-                          variant="default"
-                          onClick={() => handleUpdateStatus(invoice._id, 'paid')}
-                        >
-                          Mark Paid
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsReceiveDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleReceiveGoods}>
+              Receive & Update Inventory
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      {/* View Invoice Dialog */}
+      {/* View Outgoing Invoice Dialog */}
       <Dialog open={isViewDialogOpen} onOpenChange={setIsViewDialogOpen}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -292,12 +614,15 @@ export default function Invoices() {
 
               {/* Action Buttons */}
               <div className="flex justify-end space-x-2 print:hidden">
-                <Button variant="outline" onClick={handlePrintInvoice}>
+                <Button variant="outline" onClick={() => setIsViewDialogOpen(false)}>
+                  Close
+                </Button>
+                <Button variant="outline" onClick={() => window.print()}>
                   <Download className="mr-2 h-4 w-4" />
                   Print/Download
                 </Button>
                 {selectedInvoice.status !== 'paid' && selectedInvoice.status !== 'cancelled' && (
-                  <Button onClick={() => handleUpdateStatus(selectedInvoice._id, 'paid')}>
+                  <Button onClick={() => handleUpdateInvoiceStatus(selectedInvoice._id, 'paid')}>
                     Mark as Paid
                   </Button>
                 )}
