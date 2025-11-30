@@ -70,15 +70,16 @@ export const createSale = async (req, res) => {
       totalItemDiscounts += itemDiscount;
 
       saleItems.push({
-        product: product._id,
-        productName: product.name,
-        quantity: item.quantity,
-        unit,
-        unitPrice,
-        discount: itemDiscount,
-        totalPrice,
-        baseUnitQuantity
-      });
+  product: product._id,
+  productName: product.name,
+  quantity: item.quantity,
+  unit,
+  unitPrice,
+  discount: itemDiscount,
+  totalPrice,
+  baseUnitQuantity,
+  buyingPrice: product.buyingPrice // <-- ADD THIS LINE! This stores the buying price at time of sale
+});
 
       // Update product stock
       product.quantity -= baseUnitQuantity;
