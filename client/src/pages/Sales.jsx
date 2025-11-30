@@ -223,21 +223,21 @@ export default function Sales() {
   };
 
   // NEW: Calculate totals including profit
-  const calculateTotals = () => {
-    const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
-    const totalPaid = sales.reduce((sum, sale) => sum + sale.amountPaid, 0);
-    const totalDue = sales.reduce((sum, sale) => sum + sale.amountDue, 0);
-    
-    // Calculate total profit (cost of goods sold)
-    let totalCost = 0;
-    sales.forEach(sale => {
-      sale.items?.forEach(item => {
-        if (item.product && item.product.buyingPrice) {
-          const costForItem = item.product.buyingPrice * (item.baseUnitQuantity || item.quantity);
-          totalCost += costForItem;
-        }
-      });
+ const calculateTotals = () => {
+  const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
+  const totalPaid = sales.reduce((sum, sale) => sum + sale.amountPaid, 0);
+  const totalDue = sales.reduce((sum, sale) => sum + sale.amountDue, 0);
+  
+  // FIXED: Calculate total cost using buyingPrice stored in sale items (not from product)
+  let totalCost = 0;
+  sales.forEach(sale => {
+    sale.items?.forEach(item => {
+      // Use the buyingPrice that was stored at time of sale
+      // This ensures accurate profit calculation even if product prices change
+      const itemCost = (item.buyingPrice || 0) * (item.baseUnitQuantity || item.quantity);
+      totalCost += itemCost;
     });
+  });
     
     const totalProfit = totalRevenue - totalCost;
     
