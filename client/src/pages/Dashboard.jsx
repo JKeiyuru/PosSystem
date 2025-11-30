@@ -1,4 +1,4 @@
-// client/src/pages/Dashboard.jsx - CONSOLIDATED WITH ALL FEATURES (RESPONSIVE + FIXED API)
+// client/src/pages/Dashboard.jsx - COMPLETE FIXED VERSION
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -62,35 +62,53 @@ export default function Dashboard() {
     try {
       setLoading(true);
       
-      // Fetch core dashboard data
-      const [dailySalesRes, lowStockRes, stockValueRes, topProductsRes, topCustomersRes] = await Promise.all([
+      // Fetch core dashboard data (existing endpoints that work)
+      const [dailySalesRes, lowStockRes, stockValueRes] = await Promise.all([
         saleService.getDailySales(),
         productService.getLowStock(),
-        stockService.getStockValue(),
-        api.get('/sales/analytics/top-products', { params: { limit: 5 } }),
-        api.get('/sales/analytics/top-customers', { params: { limit: 5 } })
+        stockService.getStockValue()
       ]);
 
       const todaySales = dailySalesRes.data.summary;
       const salesList = dailySalesRes.data.sales;
 
-      // NEW: Fetch additional data with error handling
+      // Initialize additional data with defaults
       let todayDebtPayments = 0;
       let monthlyProfitData = [];
+      let topProductsData = [];
+      let topCustomersData = [];
 
       try {
-        // Fetch today's debt payments
+        // Try to fetch top products (existing endpoint)
+        const topProductsRes = await api.get('/sales/analytics/top-products', { params: { limit: 5 } });
+        topProductsData = topProductsRes.data.data || [];
+      } catch (error) {
+        console.warn('Could not fetch top products:', error);
+        // Use empty array as fallback
+      }
+
+      try {
+        // Try to fetch top customers (existing endpoint)
+        const topCustomersRes = await api.get('/sales/analytics/top-customers', { params: { limit: 5 } });
+        topCustomersData = topCustomersRes.data.data || [];
+      } catch (error) {
+        console.warn('Could not fetch top customers:', error);
+        // Use empty array as fallback
+      }
+
+      try {
+        // Fetch today's debt payments - CORRECTED ENDPOINT
         const debtPaymentsRes = await api.get('/api/debts/payments/today');
-        todayDebtPayments = debtPaymentsRes.data.totalPayments || 0;
+        todayDebtPayments = debtPaymentsRes.data.data?.totalPayments || 0;
       } catch (error) {
         console.warn('Could not fetch debt payments:', error);
         // Continue without debt payments data
       }
 
       try {
-        // Fetch monthly revenue and profit data
+        // Fetch monthly revenue and profit data - CORRECTED ENDPOINT
         const monthlyRes = await api.get('/api/reports/monthly-profit');
-        monthlyProfitData = monthlyRes.data.months || [];
+        monthlyProfitData = monthlyRes.data.data?.months || [];
       } catch (error) {
         console.warn('Could not fetch monthly profit data:', error);
         // Continue without monthly data
@@ -106,8 +124,8 @@ export default function Dashboard() {
 
       setLowStockProducts(lowStockRes.data);
       setTodaysSales(salesList);
-      setTopProducts(topProductsRes.data.data || []);
-      setTopCustomers(topCustomersRes.data.data || []);
+      setTopProducts(topProductsData);
+      setTopCustomers(topCustomersData);
       setMonthlyData(monthlyProfitData);
 
     } catch (error) {
@@ -117,11 +135,11 @@ export default function Dashboard() {
     }
   };
 
-  // NEW: Reset analytics functionality
+  // Reset analytics functionality
   const handleResetAnalytics = async () => {
     if (window.confirm('Are you sure you want to reset the analytics data? This will clear Top Products and Top Customers data and start fresh.')) {
       try {
-        // Reset the analytics data via API
+        // Reset the analytics data via API - CORRECTED ENDPOINT
         await api.post('/api/analytics/reset', { 
           types: ['products', 'customers'] 
         });
@@ -220,7 +238,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* NEW: Today's Debt Payments Card - Hidden on smallest screens */}
+        {/* Today's Debt Payments Card - Hidden on smallest screens */}
         <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 col-span-2 md:col-span-1 hidden sm:block">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
             <CardTitle className="text-xs sm:text-sm font-medium">Debt Payments</CardTitle>
@@ -270,7 +288,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* NEW: Monthly Revenue & Profit Chart - Responsive container */}
+      {/* Monthly Revenue & Profit Chart - Responsive container */}
       <Card>
         <CardHeader className="p-4 sm:p-6">
           <CardTitle className="flex items-center space-x-2 text-lg sm:text-xl">
