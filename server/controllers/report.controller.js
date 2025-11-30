@@ -5,8 +5,89 @@ import Product from '../models/Product.model.js';
 import Customer from '../models/Customer.model.js';
 import StockMovement from '../models/StockMovement.model.js';
 
-// server/controllers/report.controller.js - Fix getDailySalesReport
 
+// Get monthly revenue and profit data
+export const getMonthlyProfit = async (req, res) => {
+  try {
+    const currentYear = new Date().getFullYear();
+    const startDate = new Date(currentYear, 0, 1); // January 1st of current year
+    const endDate = new Date(currentYear, 11, 31); // December 31st of current year
+
+    const monthlyData = await Sale.aggregate([
+      {
+        $match: {
+          saleDate: {
+            $gte: startDate,
+            $lte: endDate
+          },
+          paymentStatus: { $in: ['paid', 'partial'] }
+        }
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$saleDate' },
+            month: { $month: '$saleDate' }
+          },
+          revenue: { $sum: '$total' },
+          costOfGoods: { 
+            $sum: {
+              $reduce: {
+                input: '$items',
+                initialValue: 0,
+                in: {
+                  $add: [
+                    '$$value',
+                    { $multiply: ['$$this.quantity', '$$this.buyingPrice'] }
+                  ]
+                }
+              }
+            }
+          },
+          salesCount: { $sum: 1 }
+        }
+      },
+      {
+        $project: {
+          month: {
+            $let: {
+              vars: {
+                monthsInString: [
+                  '', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'
+                ]
+              },
+              in: {
+                $arrayElemAt: ['$$monthsInString', '$_id.month']
+              }
+            }
+          },
+          revenue: 1,
+          costOfGoods: 1,
+          profit: { $subtract: ['$revenue', '$costOfGoods'] },
+          salesCount: 1,
+          year: '$_id.year'
+        }
+      },
+      { $sort: { '_id.year': 1, '_id.month': 1 } }
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        months: monthlyData
+      }
+    });
+  } catch (error) {
+    console.error('Error fetching monthly profit data:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// server/controllers/report.controller.js - Fix getDailySalesReport
 export const getDailySalesReport = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
