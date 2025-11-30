@@ -1,4 +1,4 @@
-// client/src/components/layout/Sidebar.jsx - ROLE-BASED NAVIGATION
+// client/src/components/layout/Sidebar.jsx - UPDATED ROLE-BASED NAVIGATION
 
 import { Link, useLocation } from 'react-router-dom';
 import { 
@@ -76,7 +76,7 @@ const allMenuItems = [
     icon: FileText, 
     label: 'Invoices', 
     path: '/invoices',
-    roles: ['admin', 'manager']
+    roles: ['admin', 'manager', 'cashier'] // UPDATED: Added cashier access
   },
   { 
     icon: BarChart3, 
@@ -88,7 +88,7 @@ const allMenuItems = [
     icon: Settings, 
     label: 'Settings', 
     path: '/settings',
-    roles: ['admin', 'manager', 'cashier']
+    roles: ['admin', 'manager'] // UPDATED: Removed cashier access
   },
 ];
 
