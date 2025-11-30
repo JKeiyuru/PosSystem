@@ -1,4 +1,4 @@
-// client/src/pages/Debts.jsx - UPDATED with debt service
+// client/src/pages/Debts.jsx - UPDATED with Cashier Role Restrictions
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -25,8 +25,12 @@ import { Badge } from '../components/ui/badge';
 import { Search, DollarSign, FileText, Download } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import { debtService } from '../services/debt.service';
+import { useAuth } from '../hooks/useAuth';
 
 export default function Debts() {
+  const { user } = useAuth();
+  const isCashier = user?.role === 'cashier';
+  
   const [debts, setDebts] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [dateRange, setDateRange] = useState({
@@ -136,43 +140,47 @@ export default function Debts() {
             <h1 className="text-3xl font-bold">Debts Management</h1>
             <p className="text-gray-600">Track and manage customer debts</p>
           </div>
-          <Button onClick={generateReport} disabled={!dateRange.startDate || !dateRange.endDate}>
-            <FileText className="mr-2 h-4 w-4" />
-            Generate Report
-          </Button>
+          {!isCashier && (
+            <Button onClick={generateReport} disabled={!dateRange.startDate || !dateRange.endDate}>
+              <FileText className="mr-2 h-4 w-4" />
+              Generate Report
+            </Button>
+          )}
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Total Customers with Debt</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{totals.totalCustomers}</div>
-            </CardContent>
-          </Card>
+        {/* Summary Cards - HIDDEN FOR CASHIERS */}
+        {!isCashier && (
+          <div className="grid gap-4 md:grid-cols-3">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Total Customers with Debt</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">{totals.totalCustomers}</div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Total Outstanding Debt</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-red-600">{formatCurrency(totals.totalDebt)}</div>
-            </CardContent>
-          </Card>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Total Outstanding Debt</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold text-red-600">{formatCurrency(totals.totalDebt)}</div>
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium">Average Debt per Customer</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">
-                {formatCurrency(totals.totalCustomers > 0 ? totals.totalDebt / totals.totalCustomers : 0)}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-medium">Average Debt per Customer</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {formatCurrency(totals.totalCustomers > 0 ? totals.totalDebt / totals.totalCustomers : 0)}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         {/* Filters */}
         <Card>
@@ -366,91 +374,93 @@ export default function Debts() {
         </DialogContent>
       </Dialog>
 
-      {/* Report Dialog */}
-      <Dialog open={showReport} onOpenChange={setShowReport}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Debts Report</DialogTitle>
-          </DialogHeader>
+      {/* Report Dialog - HIDDEN FOR CASHIERS */}
+      {!isCashier && (
+        <Dialog open={showReport} onOpenChange={setShowReport}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Debts Report</DialogTitle>
+            </DialogHeader>
 
-          {reportData && (
-            <div className="space-y-6">
-              {/* Report Header */}
-              <div className="text-center border-b pb-4">
-                <h2 className="text-xl font-bold">Bekhal Animal Feeds</h2>
-                <p className="text-sm text-gray-600">Debts Report</p>
-                <p className="text-sm text-gray-600">
-                  Period: {reportData.startDate ? formatDateTime(reportData.startDate) : 'All'} to {reportData.endDate ? formatDateTime(reportData.endDate) : 'All'}
-                </p>
-                <p className="text-sm text-gray-600">
-                  Generated on: {formatDateTime(new Date())}
-                </p>
-              </div>
+            {reportData && (
+              <div className="space-y-6">
+                {/* Report Header */}
+                <div className="text-center border-b pb-4">
+                  <h2 className="text-xl font-bold">Bekhal Animal Feeds</h2>
+                  <p className="text-sm text-gray-600">Debts Report</p>
+                  <p className="text-sm text-gray-600">
+                    Period: {reportData.startDate ? formatDateTime(reportData.startDate) : 'All'} to {reportData.endDate ? formatDateTime(reportData.endDate) : 'All'}
+                  </p>
+                  <p className="text-sm text-gray-600">
+                    Generated on: {formatDateTime(new Date())}
+                  </p>
+                </div>
 
-              {/* Summary Statistics */}
-              <div className="grid grid-cols-3 gap-4">
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-sm text-gray-600">Total Customers</div>
-                    <div className="text-2xl font-bold">{reportData.summary.totalCustomers}</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-sm text-gray-600">Total Outstanding Debt</div>
-                    <div className="text-2xl font-bold text-red-600">
-                      {formatCurrency(reportData.summary.totalDebt)}
-                    </div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="pt-6">
-                    <div className="text-sm text-gray-600">Total Sales on Credit</div>
-                    <div className="text-2xl font-bold">{reportData.summary.totalCreditSales}</div>
-                  </CardContent>
-                </Card>
-              </div>
+                {/* Summary Statistics */}
+                <div className="grid grid-cols-3 gap-4">
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-gray-600">Total Customers</div>
+                      <div className="text-2xl font-bold">{reportData.summary.totalCustomers}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-gray-600">Total Outstanding Debt</div>
+                      <div className="text-2xl font-bold text-red-600">
+                        {formatCurrency(reportData.summary.totalDebt)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardContent className="pt-6">
+                      <div className="text-sm text-gray-600">Total Sales on Credit</div>
+                      <div className="text-2xl font-bold">{reportData.summary.totalCreditSales}</div>
+                    </CardContent>
+                  </Card>
+                </div>
 
-              {/* Detailed Breakdown */}
-              <div>
-                <h3 className="font-semibold mb-3">Customer Breakdown</h3>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Customer</TableHead>
-                      <TableHead>Total Debt</TableHead>
-                      <TableHead>Sales Count</TableHead>
-                      <TableHead>Days Outstanding</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {reportData.customers.map((customer, index) => (
-                      <TableRow key={index}>
-                        <TableCell>{customer.name}</TableCell>
-                        <TableCell className="text-red-600 font-semibold">
-                          {formatCurrency(customer.debt)}
-                        </TableCell>
-                        <TableCell>{customer.salesCount}</TableCell>
-                        <TableCell>{customer.daysOutstanding} days</TableCell>
+                {/* Detailed Breakdown */}
+                <div>
+                  <h3 className="font-semibold mb-3">Customer Breakdown</h3>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Customer</TableHead>
+                        <TableHead>Total Debt</TableHead>
+                        <TableHead>Sales Count</TableHead>
+                        <TableHead>Days Outstanding</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+                    </TableHeader>
+                    <TableBody>
+                      {reportData.customers.map((customer, index) => (
+                        <TableRow key={index}>
+                          <TableCell>{customer.name}</TableCell>
+                          <TableCell className="text-red-600 font-semibold">
+                            {formatCurrency(customer.debt)}
+                          </TableCell>
+                          <TableCell>{customer.salesCount}</TableCell>
+                          <TableCell>{customer.daysOutstanding} days</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
 
-              <div className="flex justify-end space-x-2">
-                <Button variant="outline" onClick={() => setShowReport(false)}>
-                  Close
-                </Button>
-                <Button onClick={downloadReport}>
-                  <Download className="mr-2 h-4 w-4" />
-                  Download Report
-                </Button>
+                <div className="flex justify-end space-x-2">
+                  <Button variant="outline" onClick={() => setShowReport(false)}>
+                    Close
+                  </Button>
+                  <Button onClick={downloadReport}>
+                    <Download className="mr-2 h-4 w-4" />
+                    Download Report
+                  </Button>
+                </div>
               </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </>
   );
 }
