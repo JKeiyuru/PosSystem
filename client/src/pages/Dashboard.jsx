@@ -1,7 +1,7 @@
-// client/src/pages/Dashboard.jsx - CLOSE OF BUSINESS BUTTON REMOVED
-
+// client/src/pages/Dashboard.jsx - CONSOLIDATED WITH ALL FEATURES
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import { 
   Table, 
@@ -17,7 +17,10 @@ import {
   Package, 
   AlertTriangle,
   TrendingUp,
-  Users
+  Users,
+  CreditCard,
+  RefreshCw,
+  BarChart3
 } from 'lucide-react';
 import { saleService } from '../services/sale.service';
 import { productService } from '../services/product.service';
@@ -31,6 +34,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState({
     todaySales: 0,
     todayRevenue: 0,
+    todayDebtPayments: 0,
     lowStockCount: 0,
     stockValue: 0
   });
@@ -38,12 +42,20 @@ export default function Dashboard() {
   const [todaysSales, setTodaysSales] = useState([]);
   const [topProducts, setTopProducts] = useState([]);
   const [topCustomers, setTopCustomers] = useState([]);
+  const [monthlyData, setMonthlyData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showLowStockDialog, setShowLowStockDialog] = useState(false);
   const [showTodaysSalesDialog, setShowTodaysSalesDialog] = useState(false);
+  const [lastResetDate, setLastResetDate] = useState(null);
 
   useEffect(() => {
     fetchDashboardData();
+    
+    // Get last reset date from localStorage
+    const savedResetDate = localStorage.getItem('analytics_reset_date');
+    if (savedResetDate) {
+      setLastResetDate(new Date(savedResetDate));
+    }
   }, []);
 
   const fetchDashboardData = async () => {
@@ -65,9 +77,16 @@ export default function Dashboard() {
         params: { limit: 5 }
       });
 
+      // NEW: Fetch monthly revenue and profit data
+      const monthlyRes = await api.get('/sales/analytics/monthly-revenue-profit');
+      
+      // NEW: Fetch today's debt payments
+      const debtPaymentsRes = await api.get('/sales/daily-debt-payments');
+
       setStats({
         todaySales: todaySales.salesCount,
         todayRevenue: todaySales.totalSales,
+        todayDebtPayments: debtPaymentsRes.data.totalDebtPayments || 0,
         lowStockCount: lowStockRes.data.length,
         stockValue: stockValueRes.data.stockValue
       });
@@ -76,11 +95,39 @@ export default function Dashboard() {
       setTodaysSales(salesList);
       setTopProducts(topProductsRes.data.data || []);
       setTopCustomers(topCustomersRes.data.data || []);
+      setMonthlyData(monthlyRes.data.data || []);
 
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  // NEW: Reset analytics functionality
+  const handleResetAnalytics = async () => {
+    if (window.confirm('Are you sure you want to reset the analytics data? This will clear Top Products and Top Customers data and start fresh.')) {
+      try {
+        // Reset the analytics data via API
+        await api.post('/analytics/reset');
+        
+        // Clear local state
+        setTopProducts([]);
+        setTopCustomers([]);
+        
+        // Save reset date
+        const resetDate = new Date();
+        setLastResetDate(resetDate);
+        localStorage.setItem('analytics_reset_date', resetDate.toISOString());
+        
+        alert('Analytics data has been reset. New data will start accumulating from now.');
+        
+        // Refetch dashboard data to get updated state
+        fetchDashboardData();
+      } catch (error) {
+        console.error('Error resetting analytics:', error);
+        alert('Error resetting analytics data');
+      }
     }
   };
 
@@ -95,10 +142,22 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-gray-600">Welcome to Bekhal Animal Feeds POS</p>
         </div>
+        {/* NEW: Reset Analytics Button */}
+        <div className="flex items-center space-x-2">
+          {lastResetDate && (
+            <span className="text-sm text-gray-600">
+              Last Reset: {formatDateTime(lastResetDate)}
+            </span>
+          )}
+          <Button variant="outline" onClick={handleResetAnalytics}>
+            <RefreshCw className="mr-2 h-4 w-4" />
+            Reset Analytics
+          </Button>
+        </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {/* Stats Cards - Enhanced with 5 columns */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
         <Card 
           className="cursor-pointer hover:shadow-lg transition-shadow"
           onClick={() => setShowTodaysSalesDialog(true)}
@@ -124,6 +183,20 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">{formatCurrency(stats.todayRevenue)}</div>
             <p className="text-xs text-muted-foreground">
               Total revenue today
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* NEW: Today's Debt Payments Card */}
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Debt Payments Today</CardTitle>
+            <CreditCard className="h-4 w-4 text-green-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-green-700">{formatCurrency(stats.todayDebtPayments)}</div>
+            <p className="text-xs text-green-600">
+              Credit collections
             </p>
           </CardContent>
         </Card>
@@ -158,14 +231,59 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Analytics Charts */}
+      {/* NEW: Monthly Revenue & Profit Chart */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center space-x-2">
+            <BarChart3 className="h-5 w-5" />
+            <span>Monthly Revenue & Net Profit</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {monthlyData.length > 0 ? (
+            <ResponsiveContainer width="100%" height={400}>
+              <BarChart data={monthlyData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis tickFormatter={(value) => `KES ${(value / 1000000).toFixed(1)}M`} />
+                <Tooltip 
+                  formatter={(value) => formatCurrency(value)}
+                  labelFormatter={(label) => `Month: ${label}`}
+                />
+                <Legend />
+                <Bar dataKey="revenue" fill="#2563eb" name="Total Revenue" />
+                <Bar dataKey="profit" fill="#16a34a" name="Net Profit" />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              No monthly data available yet
+            </div>
+          )}
+          <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+            <p className="text-sm text-gray-700">
+              <strong>Note:</strong> This chart shows total revenue and net profit for each month. 
+              Profit is calculated as Revenue minus Cost of Goods Sold.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Analytics Charts - Enhanced with reset indicators */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Top Products Chart */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <TrendingUp className="h-5 w-5" />
-              <span>Top 5 Best Selling Products</span>
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <TrendingUp className="h-5 w-5" />
+                <span>Top 5 Best Selling Products</span>
+              </div>
+              {lastResetDate && (
+                <Badge variant="secondary" className="text-xs">
+                  Since {new Date(lastResetDate).toLocaleDateString()}
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -191,7 +309,7 @@ export default function Dashboard() {
               </ResponsiveContainer>
             ) : (
               <div className="text-center py-8 text-gray-500">
-                No sales data available yet
+                No sales data available yet. Data will accumulate after reset.
               </div>
             )}
           </CardContent>
@@ -200,9 +318,16 @@ export default function Dashboard() {
         {/* Top Customers Chart */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center space-x-2">
-              <Users className="h-5 w-5" />
-              <span>Top 5 Customers by Purchases</span>
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Users className="h-5 w-5" />
+                <span>Top 5 Customers by Purchases</span>
+              </div>
+              {lastResetDate && (
+                <Badge variant="secondary" className="text-xs">
+                  Since {new Date(lastResetDate).toLocaleDateString()}
+                </Badge>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -228,7 +353,7 @@ export default function Dashboard() {
               </ResponsiveContainer>
             ) : (
               <div className="text-center py-8 text-gray-500">
-                No customer data available yet
+                No customer data available yet. Data will accumulate after reset.
               </div>
             )}
           </CardContent>
@@ -254,7 +379,11 @@ export default function Dashboard() {
                       Current: {product.quantity} {product.baseUnit} | Reorder: {product.reorderLevel} {product.baseUnit}
                     </p>
                   </div>
-                  <span className="text-yellow-600 font-semibold">Low Stock</span>
+                  {product.quantity === 0 ? (
+                    <Badge variant="destructive">Out of Stock</Badge>
+                  ) : (
+                    <Badge variant="warning">Low Stock</Badge>
+                  )}
                 </div>
               ))}
             </div>
