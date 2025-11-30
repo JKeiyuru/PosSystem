@@ -5,7 +5,8 @@ import {
   getDailySalesReport,
   getBalanceSheet,
   getProductPerformance,
-  getCashFlowReport
+  getCashFlowReport,
+  getMonthlyProfit // NEW
 } from '../controllers/report.controller.js';
 import { protect, authorize } from '../middlewares/auth.middleware.js';
 
@@ -15,5 +16,6 @@ router.get('/daily-sales', protect, getDailySalesReport);
 router.get('/balance-sheet', protect, authorize('admin', 'manager'), getBalanceSheet);
 router.get('/product-performance', protect, getProductPerformance);
 router.get('/cash-flow', protect, authorize('admin', 'manager'), getCashFlowReport);
+router.get('/monthly-profit', protect, authorize('admin', 'manager'), getMonthlyProfit);
 
 export default router;
