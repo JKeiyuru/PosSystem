@@ -1,5 +1,4 @@
-// client/src/pages/Production.jsx - WITH AUTO-SAVE/CACHE
-
+// client/src/pages/Production.jsx - CONSOLIDATED WITH ALL FEATURES
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -50,11 +49,19 @@ export default function Production() {
   const [loading, setLoading] = useState(false);
   const [productionHistory, setProductionHistory] = useState([]);
   const [formulas, setFormulas] = useState([]);
+  
+  // Formula dialogs
   const [showSaveFormulaDialog, setShowSaveFormulaDialog] = useState(false);
+  const [showConfirmSaveDialog, setShowConfirmSaveDialog] = useState(false);
   const [formulaName, setFormulaName] = useState('');
+  
+  // Formula execution with scale
   const [showExecuteFormulaDialog, setShowExecuteFormulaDialog] = useState(false);
   const [selectedFormula, setSelectedFormula] = useState(null);
-  const [activeTab, setActiveTab] = useState('manual');
+  const [formulaScale, setFormulaScale] = useState('full');
+  const [customOutput, setCustomOutput] = useState({ bags: '', kgs: '' });
+
+  // Payment and sales
   const [showPaymentDialog, setShowPaymentDialog] = useState(false);
   const [splitPayments, setSplitPayments] = useState([{ method: 'cash', amount: '' }]);
   const [completedSale, setCompletedSale] = useState(null);
@@ -287,6 +294,7 @@ export default function Production() {
     alert('Production started! Ingredient stock will be deducted when you complete production.');
   };
 
+  // NEW: Enhanced completion with save confirmation
   const handleInitiateCompletion = () => {
     if (productionType === 'standard') {
       if (!finalProduct) {
@@ -297,7 +305,6 @@ export default function Production() {
         alert('Please enter the output quantity (bags and/or kgs) for inventory');
         return;
       }
-      endProduction();
     } else {
       if (!customerName || !customOutputName) {
         alert('Please enter customer name and product name for the custom combination');
@@ -313,8 +320,29 @@ export default function Production() {
         alert(`Selling price cannot be less than production cost (${formatCurrency(minPrice)})`);
         return;
       }
-      
+    }
+
+    // NEW: Ask if they want to save the formula
+    setShowConfirmSaveDialog(true);
+  };
+
+  // NEW: User chose to save formula
+  const handleChooseSaveFormula = () => {
+    setShowConfirmSaveDialog(false);
+    setShowSaveFormulaDialog(true);
+  };
+
+  // NEW: User chose NOT to save formula
+  const handleSkipSaveFormula = () => {
+    setShowConfirmSaveDialog(false);
+    proceedToCompletion(); // Proceed directly
+  };
+
+  const proceedToCompletion = () => {
+    if (productionType === 'custom') {
       setShowPaymentDialog(true);
+    } else {
+      endProduction();
     }
   };
 
@@ -439,8 +467,9 @@ export default function Production() {
     return splitPayments.reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0);
   };
 
-  const saveFormula = async () => {
-    if (!formulaName) {
+  // NEW: Enhanced formula saving that completes production after save
+  const handleSaveFormula = async () => {
+    if (!formulaName.trim()) {
       alert('Please enter a formula name');
       return;
     }
@@ -479,6 +508,9 @@ export default function Production() {
       setShowSaveFormulaDialog(false);
       setFormulaName('');
       fetchFormulas();
+      
+      // Now complete the production
+      proceedToCompletion();
     } catch (error) {
       console.error('Error saving formula:', error);
       alert('Error saving formula: ' + (error.response?.data?.message || error.message));
@@ -491,6 +523,10 @@ export default function Production() {
     setSelectedFormula(formula);
     setShowExecuteFormulaDialog(true);
     
+    // Reset scale and custom output when loading new formula
+    setFormulaScale('full');
+    setCustomOutput({ bags: '', kgs: '' });
+    
     if (formula.type === 'standard') {
       setOutputBags(formula.defaultOutputBags?.toString() || '');
       setOutputKgs(formula.defaultOutputKgs?.toString() || '');
@@ -498,11 +534,10 @@ export default function Production() {
       setCustomerName(formula.customerName || '');
       setCustomOutputName(formula.customOutputName || '');
       setSellingPrice('');
-      setOutputBags('');
-      setOutputKgs('');
     }
   };
 
+  // NEW: Enhanced formula execution with scaling
   const executeFormula = async () => {
     if (!selectedFormula) return;
 
@@ -514,23 +549,46 @@ export default function Production() {
       
       setShowPaymentDialog(true);
     } else {
-      if (!outputBags && !outputKgs) {
+      // Use custom output if provided, otherwise use scaled default
+      const finalOutputBags = customOutput.bags ? parseFloat(customOutput.bags) : (selectedFormula.defaultOutputBags || 0) * getScaleMultiplier();
+      const finalOutputKgs = customOutput.kgs ? parseFloat(customOutput.kgs) : (selectedFormula.defaultOutputKgs || 0) * getScaleMultiplier();
+      
+      if (!finalOutputBags && !finalOutputKgs) {
         alert('Please enter output quantity for inventory');
         return;
       }
+      
+      setOutputBags(finalOutputBags.toString());
+      setOutputKgs(finalOutputKgs.toString());
       await executeFormulaProduction();
     }
+  };
+
+  const getScaleMultiplier = () => {
+    return formulaScale === 'full' ? 1 : formulaScale === 'half' ? 0.5 : 0.25;
   };
 
   const executeFormulaProduction = async (saleData = null) => {
     try {
       setLoading(true);
 
-      const payload = {};
+      const scaleMultiplier = getScaleMultiplier();
+      const scaledIngredients = selectedFormula.ingredients.map(ing => ({
+        ...ing,
+        quantity: ing.quantity * scaleMultiplier
+      }));
+
+      const payload = {
+        scale: formulaScale,
+        scaledIngredients
+      };
 
       if (selectedFormula.type === 'standard') {
-        payload.outputBags = outputBags || selectedFormula.defaultOutputBags;
-        payload.outputKgs = outputKgs || selectedFormula.defaultOutputKgs;
+        const finalOutputBags = customOutput.bags ? parseFloat(customOutput.bags) : (selectedFormula.defaultOutputBags || 0) * scaleMultiplier;
+        const finalOutputKgs = customOutput.kgs ? parseFloat(customOutput.kgs) : (selectedFormula.defaultOutputKgs || 0) * scaleMultiplier;
+        
+        payload.outputBags = finalOutputBags;
+        payload.outputKgs = finalOutputKgs;
       } else {
         payload.sellingPrice = parseFloat(sellingPrice);
         payload.sellImmediately = true;
@@ -554,6 +612,8 @@ export default function Production() {
       setShowPaymentDialog(false);
       setSelectedFormula(null);
       setSplitPayments([{ method: 'cash', amount: '' }]);
+      setFormulaScale('full');
+      setCustomOutput({ bags: '', kgs: '' });
       
       fetchProducts();
       fetchAllProducts();
@@ -621,6 +681,8 @@ export default function Production() {
     setProductionActive(false);
     setProductionType('standard');
     setSplitPayments([{ method: 'cash', amount: '' }]);
+    setFormulaScale('full');
+    setCustomOutput({ bags: '', kgs: '' });
   };
 
   const getCurrentPrice = (ing) => {
@@ -1173,6 +1235,30 @@ export default function Production() {
         </CardContent>
       </Card>
 
+      {/* NEW: Confirm Save Dialog */}
+      <Dialog open={showConfirmSaveDialog} onOpenChange={setShowConfirmSaveDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save Formula?</DialogTitle>
+          </DialogHeader>
+          <div className="py-4">
+            <p>Would you like to save this production as a formula for future use?</p>
+            <p className="text-sm text-gray-600 mt-2">
+              You can skip this and proceed directly to completing the production.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={handleSkipSaveFormula}>
+              No, Just Complete
+            </Button>
+            <Button onClick={handleChooseSaveFormula}>
+              <Save className="mr-2 h-4 w-4" />
+              Yes, Save Formula
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={showSaveFormulaDialog} onOpenChange={setShowSaveFormulaDialog}>
         <DialogContent>
           <DialogHeader>
@@ -1180,7 +1266,7 @@ export default function Production() {
           </DialogHeader>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label>Formula Name</Label>
+              <Label>Formula Name *</Label>
               <Input
                 placeholder="e.g., TELE Kienyeji Standard"
                 value={formulaName}
@@ -1188,20 +1274,21 @@ export default function Production() {
               />
             </div>
             <p className="text-sm text-gray-600">
-              This will save the current ingredients and quantities for quick reuse.
+              This will save the current ingredients, quantities, and output for quick reuse.
             </p>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowSaveFormulaDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={saveFormula} disabled={loading}>
-              {loading ? 'Saving...' : 'Save Formula'}
+            <Button onClick={handleSaveFormula} disabled={loading}>
+              {loading ? 'Saving...' : 'Save & Complete'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* NEW: Enhanced Execute Formula Dialog with Scale Selection */}
       <Dialog open={showExecuteFormulaDialog} onOpenChange={setShowExecuteFormulaDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
@@ -1238,28 +1325,67 @@ export default function Production() {
               ))}
             </div>
 
+            <div className="space-y-2">
+              <Label>Formula Scale</Label>
+              <Select value={formulaScale} onValueChange={setFormulaScale}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="full">Full Formula (100%)</SelectItem>
+                  <SelectItem value="half">Half Formula (50%)</SelectItem>
+                  <SelectItem value="quarter">Quarter Formula (25%)</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                Ingredient quantities will be automatically adjusted based on the selected scale.
+              </AlertDescription>
+            </Alert>
+
             {selectedFormula?.type === 'standard' ? (
-              // Standard TELE - ask for output
-              <div className="grid grid-cols-2 gap-4">
+              <>
                 <div className="space-y-2">
-                  <Label>Output Bags *</Label>
-                  <Input
-                    type="number"
-                    value={outputBags}
-                    onChange={(e) => setOutputBags(e.target.value)}
-                    placeholder="Bags to add to inventory"
-                  />
+                  <Label>Custom Output (Optional - Override scaled default)</Label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Input
+                        type="number"
+                        placeholder="Bags"
+                        value={customOutput.bags}
+                        onChange={(e) => setCustomOutput({...customOutput, bags: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <Input
+                        type="number"
+                        placeholder="Kgs"
+                        value={customOutput.kgs}
+                        onChange={(e) => setCustomOutput({...customOutput, kgs: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-600">
+                    Leave blank to use scaled default output. Use this if actual output differs (spillage, etc.)
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label>Output Kgs</Label>
-                  <Input
-                    type="number"
-                    value={outputKgs}
-                    onChange={(e) => setOutputKgs(e.target.value)}
-                    placeholder="Additional kgs"
-                  />
-                </div>
-              </div>
+
+                {selectedFormula && (
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <p className="text-sm font-semibold mb-1">Expected Scaled Output:</p>
+                    <p className="text-sm">
+                      {formulaScale === 'full' ? 'Full' : formulaScale === 'half' ? 'Half' : 'Quarter'} formula will produce approximately:
+                    </p>
+                    <p className="text-lg font-bold text-blue-600 mt-1">
+                      {((selectedFormula.defaultOutputBags || 0) * getScaleMultiplier()).toFixed(1)} bags + 
+                      {((selectedFormula.defaultOutputKgs || 0) * getScaleMultiplier()).toFixed(1)} kgs
+                    </p>
+                  </div>
+                )}
+              </>
             ) : (
               // Custom - ask for selling price
               <>
