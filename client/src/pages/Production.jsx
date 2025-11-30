@@ -1,4 +1,4 @@
-// client/src/pages/Production.jsx - CONSOLIDATED WITH ALL FEATURES
+// client/src/pages/Production.jsx - CONSOLIDATED WITH ALL FEATURES (FIXED)
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -67,6 +67,10 @@ export default function Production() {
   const [completedSale, setCompletedSale] = useState(null);
   const [showReceipt, setShowReceipt] = useState(false);
   const [businessInfo, setBusinessInfo] = useState(null);
+  
+  // FIX: Add activeTab state that was missing
+  const [activeTab, setActiveTab] = useState('manual');
+  
   const receiptRef = useRef();
 
   // Auto-save production state
@@ -294,7 +298,7 @@ export default function Production() {
     alert('Production started! Ingredient stock will be deducted when you complete production.');
   };
 
-  // NEW: Enhanced completion with save confirmation
+  // Enhanced completion with save confirmation
   const handleInitiateCompletion = () => {
     if (productionType === 'standard') {
       if (!finalProduct) {
@@ -322,17 +326,17 @@ export default function Production() {
       }
     }
 
-    // NEW: Ask if they want to save the formula
+    // Ask if they want to save the formula
     setShowConfirmSaveDialog(true);
   };
 
-  // NEW: User chose to save formula
+  // User chose to save formula
   const handleChooseSaveFormula = () => {
     setShowConfirmSaveDialog(false);
     setShowSaveFormulaDialog(true);
   };
 
-  // NEW: User chose NOT to save formula
+  // User chose NOT to save formula
   const handleSkipSaveFormula = () => {
     setShowConfirmSaveDialog(false);
     proceedToCompletion(); // Proceed directly
@@ -467,7 +471,7 @@ export default function Production() {
     return splitPayments.reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0);
   };
 
-  // NEW: Enhanced formula saving that completes production after save
+  // Enhanced formula saving that completes production after save
   const handleSaveFormula = async () => {
     if (!formulaName.trim()) {
       alert('Please enter a formula name');
@@ -537,7 +541,7 @@ export default function Production() {
     }
   };
 
-  // NEW: Enhanced formula execution with scaling
+  // Enhanced formula execution with scaling
   const executeFormula = async () => {
     if (!selectedFormula) return;
 
@@ -774,7 +778,8 @@ export default function Production() {
         </Alert>
       )}
 
-      <Tabs value={activeTab} onValueChange={setActiveTab}>
+      {/* FIX: Tabs component with proper activeTab state */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="manual">Manual Production</TabsTrigger>
           <TabsTrigger value="formulas">Saved Formulas</TabsTrigger>
@@ -1235,7 +1240,7 @@ export default function Production() {
         </CardContent>
       </Card>
 
-      {/* NEW: Confirm Save Dialog */}
+      {/* Confirm Save Dialog */}
       <Dialog open={showConfirmSaveDialog} onOpenChange={setShowConfirmSaveDialog}>
         <DialogContent>
           <DialogHeader>
@@ -1288,7 +1293,7 @@ export default function Production() {
         </DialogContent>
       </Dialog>
 
-      {/* NEW: Enhanced Execute Formula Dialog with Scale Selection */}
+      {/* Enhanced Execute Formula Dialog with Scale Selection */}
       <Dialog open={showExecuteFormulaDialog} onOpenChange={setShowExecuteFormulaDialog}>
         <DialogContent className="max-w-2xl">
           <DialogHeader>
