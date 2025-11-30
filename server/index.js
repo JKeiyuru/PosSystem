@@ -20,7 +20,8 @@ import debtRoutes from './routes/debt.routes.js';
 import productionRoutes from './routes/production.routes.js';
 import productionFormulaRoutes from './routes/productionFormula.routes.js';
 import vehicleRoutes from './routes/vehicle.routes.js';
-import receivingInvoiceRoutes from './routes/receivingInvoice.routes.js'; // NEW
+import receivingInvoiceRoutes from './routes/receivingInvoice.routes.js'; 
+import analyticsRoutes from './routes/analytics.routes.js'; // NEW
 
 // Utils
 import { sendDailyReport } from './utils/emailService.js';
@@ -48,7 +49,8 @@ app.use('/api/debts', debtRoutes);
 app.use('/api/production', productionRoutes);
 app.use('/api/production-formulas', productionFormulaRoutes);
 app.use('/api/vehicles', vehicleRoutes);
-app.use('/api/receiving-invoices', receivingInvoiceRoutes); // NEW
+app.use('/api/receiving-invoices', receivingInvoiceRoutes); 
+app.use('/api/analytics', analyticsRoutes); // NEW
 
 // Health check
 app.get('/api/health', (req, res) => {
