@@ -1,8 +1,10 @@
-// client/src/pages/Dashboard.jsx - COMPLETE FIXED VERSION
+// client/src/pages/Dashboard.jsx - COMPLETE WITH ALL NEW FEATURES
+
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
+import { Alert, AlertDescription } from '../components/ui/alert';
 import { 
   Table, 
   TableBody, 
@@ -46,6 +48,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [showLowStockDialog, setShowLowStockDialog] = useState(false);
   const [showTodaysSalesDialog, setShowTodaysSalesDialog] = useState(false);
+  const [showResetDialog, setShowResetDialog] = useState(false);
   const [lastResetDate, setLastResetDate] = useState(null);
 
   useEffect(() => {
@@ -62,7 +65,7 @@ export default function Dashboard() {
     try {
       setLoading(true);
       
-      // Fetch core dashboard data (existing endpoints that work)
+      // Fetch core dashboard data
       const [dailySalesRes, lowStockRes, stockValueRes] = await Promise.all([
         saleService.getDailySales(),
         productService.getLowStock(),
@@ -79,39 +82,35 @@ export default function Dashboard() {
       let topCustomersData = [];
 
       try {
-        // Try to fetch top products (existing endpoint)
+        // Fetch top products
         const topProductsRes = await api.get('/sales/analytics/top-products', { params: { limit: 5 } });
         topProductsData = topProductsRes.data.data || [];
       } catch (error) {
         console.warn('Could not fetch top products:', error);
-        // Use empty array as fallback
       }
 
       try {
-        // Try to fetch top customers (existing endpoint)
+        // Fetch top customers
         const topCustomersRes = await api.get('/sales/analytics/top-customers', { params: { limit: 5 } });
         topCustomersData = topCustomersRes.data.data || [];
       } catch (error) {
         console.warn('Could not fetch top customers:', error);
-        // Use empty array as fallback
       }
 
       try {
-        // Fetch today's debt payments - CORRECTED ENDPOINT
-        const debtPaymentsRes = await api.get('/api/debts/payments/today');
+        // Fetch today's debt payments
+        const debtPaymentsRes = await api.get('/debts/payments/today');
         todayDebtPayments = debtPaymentsRes.data.data?.totalPayments || 0;
       } catch (error) {
         console.warn('Could not fetch debt payments:', error);
-        // Continue without debt payments data
       }
 
       try {
-        // Fetch monthly revenue and profit data - CORRECTED ENDPOINT
-        const monthlyRes = await api.get('/api/reports/monthly-profit');
+        // Fetch monthly revenue and profit data (last 12 months)
+        const monthlyRes = await api.get('/reports/monthly-profit');
         monthlyProfitData = monthlyRes.data.data?.months || [];
       } catch (error) {
         console.warn('Could not fetch monthly profit data:', error);
-        // Continue without monthly data
       }
 
       setStats({
@@ -135,32 +134,34 @@ export default function Dashboard() {
     }
   };
 
-  // Reset analytics functionality
-  const handleResetAnalytics = async () => {
-    if (window.confirm('Are you sure you want to reset the analytics data? This will clear Top Products and Top Customers data and start fresh.')) {
-      try {
-        // Reset the analytics data via API - CORRECTED ENDPOINT
-        await api.post('/api/analytics/reset', { 
-          types: ['products', 'customers'] 
-        });
-        
-        // Clear local state
-        setTopProducts([]);
-        setTopCustomers([]);
-        
-        // Save reset date
-        const resetDate = new Date();
-        setLastResetDate(resetDate);
-        localStorage.setItem('analytics_reset_date', resetDate.toISOString());
-        
-        alert('Analytics data has been reset. New data will start accumulating from now.');
-        
-        // Refetch dashboard data to get updated state
-        fetchDashboardData();
-      } catch (error) {
-        console.error('Error resetting analytics:', error);
-        alert('Error resetting analytics data');
-      }
+  // Reset analytics functionality with confirmation
+  const handleResetAnalyticsClick = () => {
+    setShowResetDialog(true);
+  };
+
+  const handleConfirmReset = async () => {
+    try {
+      // Reset the analytics data via API
+      await api.post('/analytics/reset', { 
+        types: ['products', 'customers'] 
+      });
+      
+      // Clear local state
+      setTopProducts([]);
+      setTopCustomers([]);
+      
+      // Save reset date
+      const resetDate = new Date();
+      setLastResetDate(resetDate);
+      localStorage.setItem('analytics_reset_date', resetDate.toISOString());
+      
+      setShowResetDialog(false);
+      
+      // Refetch dashboard data
+      fetchDashboardData();
+    } catch (error) {
+      console.error('Error resetting analytics:', error);
+      alert('Error resetting analytics data');
     }
   };
 
@@ -193,7 +194,7 @@ export default function Dashboard() {
           )}
           <Button 
             variant="outline" 
-            onClick={handleResetAnalytics}
+            onClick={handleResetAnalyticsClick}
             size="sm"
             className="w-full sm:w-auto"
           >
@@ -203,7 +204,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Cards - Responsive grid */}
+      {/* Stats Cards - Responsive grid with new Debt Payments card */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
         {/* Today's Sales Card */}
         <Card 
@@ -238,8 +239,8 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Today's Debt Payments Card - Hidden on smallest screens */}
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 col-span-2 md:col-span-1 hidden sm:block">
+        {/* NEW: Today's Debt Payments Card */}
+        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 col-span-2 md:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
             <CardTitle className="text-xs sm:text-sm font-medium">Debt Payments</CardTitle>
             <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
@@ -249,7 +250,7 @@ export default function Dashboard() {
               {formatCurrency(stats.todayDebtPayments)}
             </div>
             <p className="text-xs text-green-600">
-              Credit collections
+              Credit collections today
             </p>
           </CardContent>
         </Card>
@@ -288,37 +289,41 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Monthly Revenue & Profit Chart - Responsive container */}
+      {/* NEW: Monthly Revenue & Net Profit Chart - Last 12 Months */}
       <Card>
         <CardHeader className="p-4 sm:p-6">
           <CardTitle className="flex items-center space-x-2 text-lg sm:text-xl">
             <BarChart3 className="h-4 w-4 sm:h-5 sm:w-5" />
-            <span>Monthly Revenue & Net Profit</span>
+            <span>Monthly Revenue & Net Profit (Last 12 Months)</span>
           </CardTitle>
         </CardHeader>
         <CardContent className="p-2 sm:p-6">
           {monthlyData.length > 0 ? (
             <div className="h-64 sm:h-80 md:h-96">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyData} margin={{ top: 10, right: 10, left: 10, bottom: 40 }}>
+                <BarChart data={monthlyData} margin={{ top: 10, right: 10, left: 10, bottom: 60 }}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis 
                     dataKey="month" 
                     angle={-45}
                     textAnchor="end"
-                    height={60}
+                    height={80}
                     interval={0}
-                    fontSize={12}
+                    fontSize={11}
                   />
                   <YAxis 
-                    tickFormatter={(value) => `KES ${(value / 1000000).toFixed(1)}M`}
+                    tickFormatter={(value) => {
+                      if (value >= 1000000) return `${(value / 1000000).toFixed(1)}M`;
+                      if (value >= 1000) return `${(value / 1000).toFixed(0)}K`;
+                      return value;
+                    }}
                     fontSize={12}
                   />
                   <Tooltip 
                     formatter={(value) => formatCurrency(value)}
                     labelFormatter={(label) => `Month: ${label}`}
                   />
-                  <Legend />
+                  <Legend wrapperStyle={{ paddingTop: '20px' }} />
                   <Bar dataKey="revenue" fill="#2563eb" name="Total Revenue" />
                   <Bar dataKey="profit" fill="#16a34a" name="Net Profit" />
                 </BarChart>
@@ -332,13 +337,13 @@ export default function Dashboard() {
           <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm">
             <p className="text-gray-700">
               <strong>Note:</strong> This chart shows total revenue and net profit for each month. 
-              Profit is calculated as Revenue minus Cost of Goods Sold.
+              Profit is calculated as Revenue minus Cost of Goods Sold. Data shows the last 12 months.
             </p>
           </div>
         </CardContent>
       </Card>
 
-      {/* Analytics Charts - Responsive grid */}
+      {/* Analytics Charts - Top Products & Top Customers (Resettable) */}
       <div className="grid gap-4 md:gap-6 md:grid-cols-2">
         {/* Top Products Chart */}
         <Card>
@@ -359,13 +364,13 @@ export default function Dashboard() {
             {topProducts.length > 0 ? (
               <div className="h-48 sm:h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topProducts} margin={{ top: 10, right: 10, left: 10, bottom: 60 }}>
+                  <BarChart data={topProducts} margin={{ top: 10, right: 10, left: 10, bottom: 80 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis 
                       dataKey="productName" 
                       angle={-45}
                       textAnchor="end"
-                      height={80}
+                      height={90}
                       interval={0}
                       fontSize={10}
                     />
@@ -406,13 +411,13 @@ export default function Dashboard() {
             {topCustomers.length > 0 ? (
               <div className="h-48 sm:h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={topCustomers} margin={{ top: 10, right: 10, left: 10, bottom: 60 }}>
+                  <BarChart data={topCustomers} margin={{ top: 10, right: 10, left: 10, bottom: 80 }}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis 
                       dataKey="customerName" 
                       angle={-45}
                       textAnchor="end"
-                      height={80}
+                      height={90}
                       interval={0}
                       fontSize={10}
                     />
@@ -467,6 +472,41 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* Reset Analytics Confirmation Dialog */}
+      <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Analytics Data?</DialogTitle>
+          </DialogHeader>
+          
+          <Alert>
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              <p className="font-semibold mb-2">This will reset:</p>
+              <ul className="list-disc list-inside space-y-1 text-sm">
+                <li>Top Products data</li>
+                <li>Top Customers data</li>
+              </ul>
+              <p className="mt-3 text-sm">
+                The data will start accumulating fresh from today. This action cannot be undone.
+              </p>
+              <p className="mt-2 text-sm font-semibold text-blue-600">
+                Note: Monthly Revenue & Net Profit chart will NOT be affected.
+              </p>
+            </AlertDescription>
+          </Alert>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowResetDialog(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmReset} variant="destructive">
+              Yes, Reset Analytics
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Low Stock Dialog - Responsive */}
       <Dialog open={showLowStockDialog} onOpenChange={setShowLowStockDialog}>
