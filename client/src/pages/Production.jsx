@@ -1,5 +1,4 @@
-/* eslint-disable no-unused-vars */
-// client/src/pages/Production.jsx - FULLY ENHANCED with Correct Sub-Unit Pricing & Formula Sales
+// client/src/pages/Production.jsx - WITH AUTO-SAVE/CACHE
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -23,13 +22,16 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
-import { Search, Plus, Trash2, Play, Square, Save, Zap, Package, DollarSign, ShoppingCart } from 'lucide-react';
+import { Alert, AlertDescription } from '../components/ui/alert';
+import { Search, Plus, Trash2, Play, Square, Save, Zap, Package, DollarSign, ShoppingCart, AlertCircle } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { productionService } from '../services/production.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import api from '../services/api';
 import Receipt from '../components/pos/Receipt';
 import ReceiptActions from '../components/pos/ReceiptActions';
+
+const CACHE_KEY = 'production_cache';
 
 export default function Production() {
   const [products, setProducts] = useState([]);
@@ -59,6 +61,66 @@ export default function Production() {
   const [showReceipt, setShowReceipt] = useState(false);
   const [businessInfo, setBusinessInfo] = useState(null);
   const receiptRef = useRef();
+
+  // Auto-save production state
+  useEffect(() => {
+    const saveState = () => {
+      const state = {
+        ingredients,
+        productionActive,
+        productionType,
+        finalProduct,
+        customerName,
+        customOutputName,
+        outputBags,
+        outputKgs,
+        sellingPrice,
+        timestamp: Date.now()
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(state));
+    };
+
+    if (ingredients.length > 0 || productionActive) {
+      saveState();
+    }
+  }, [ingredients, productionActive, productionType, finalProduct, customerName, customOutputName, outputBags, outputKgs, sellingPrice]);
+
+  // Restore production state on mount
+  useEffect(() => {
+    const restoreState = () => {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (cached) {
+        try {
+          const state = JSON.parse(cached);
+          const timeDiff = Date.now() - state.timestamp;
+          
+          // Only restore if less than 24 hours old
+          if (timeDiff < 24 * 60 * 60 * 1000) {
+            setIngredients(state.ingredients || []);
+            setProductionActive(state.productionActive || false);
+            setProductionType(state.productionType || 'standard');
+            setFinalProduct(state.finalProduct || '');
+            setCustomerName(state.customerName || '');
+            setCustomOutputName(state.customOutputName || '');
+            setOutputBags(state.outputBags || '');
+            setOutputKgs(state.outputKgs || '');
+            setSellingPrice(state.sellingPrice || '');
+            
+            if (state.ingredients?.length > 0 || state.productionActive) {
+              alert('Previous production session restored!');
+            }
+          } else {
+            localStorage.removeItem(CACHE_KEY);
+          }
+        } catch (error) {
+          console.error('Error restoring state:', error);
+          localStorage.removeItem(CACHE_KEY);
+        }
+      }
+    };
+
+    restoreState();
+  }, []);
 
   useEffect(() => {
     fetchProducts();
@@ -128,6 +190,10 @@ export default function Production() {
     } catch (error) {
       console.error('Error fetching formulas:', error);
     }
+  };
+
+  const clearCache = () => {
+    localStorage.removeItem(CACHE_KEY);
   };
 
   const addIngredient = (product) => {
@@ -223,7 +289,6 @@ export default function Production() {
 
   const handleInitiateCompletion = () => {
     if (productionType === 'standard') {
-      // Standard TELE production
       if (!finalProduct) {
         alert('Please select the final TELE product');
         return;
@@ -232,10 +297,8 @@ export default function Production() {
         alert('Please enter the output quantity (bags and/or kgs) for inventory');
         return;
       }
-      // Standard production - just add to inventory
       endProduction();
     } else {
-      // Custom combination
       if (!customerName || !customOutputName) {
         alert('Please enter customer name and product name for the custom combination');
         return;
@@ -251,7 +314,6 @@ export default function Production() {
         return;
       }
       
-      // Custom combinations are always sold immediately
       setShowPaymentDialog(true);
     }
   };
@@ -271,21 +333,19 @@ export default function Production() {
       };
 
       if (productionType === 'standard') {
-        // Standard TELE production - add to inventory
         const outputQuantity = parseFloat(outputBags || 0) + (parseFloat(outputKgs || 0) / 50);
         productionData.finalProduct = finalProduct;
         productionData.outputQuantity = outputQuantity;
         productionData.outputBags = parseFloat(outputBags || 0);
         productionData.outputKgs = parseFloat(outputKgs || 0);
       } else {
-        // Custom combination - direct sale (no inventory)
         productionData.customerName = customerName;
         productionData.customOutputName = customOutputName;
         productionData.sellingPrice = parseFloat(sellingPrice);
-        productionData.outputQuantity = 1; // One custom batch
+        productionData.outputQuantity = 1;
         productionData.outputBags = 0;
         productionData.outputKgs = 0;
-        productionData.sellImmediately = true; // Always true for custom
+        productionData.sellImmediately = true;
         
         if (saleData) {
           productionData.saleData = saleData;
@@ -303,6 +363,7 @@ export default function Production() {
       }
       
       resetProduction();
+      clearCache();
       fetchProducts();
       fetchAllProducts();
       fetchProductionHistory();
@@ -315,7 +376,7 @@ export default function Production() {
   };
 
   const handleCompleteSale = () => {
-    const total = parseFloat(sellingPrice); // Selling price is the total for custom batch
+    const total = parseFloat(sellingPrice);
     const totalPaid = getTotalPaid();
 
     const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
@@ -431,11 +492,9 @@ export default function Production() {
     setShowExecuteFormulaDialog(true);
     
     if (formula.type === 'standard') {
-      // Standard TELE - need output for inventory
       setOutputBags(formula.defaultOutputBags?.toString() || '');
       setOutputKgs(formula.defaultOutputKgs?.toString() || '');
     } else {
-      // Custom - need selling price, no output bags/kgs
       setCustomerName(formula.customerName || '');
       setCustomOutputName(formula.customOutputName || '');
       setSellingPrice('');
@@ -448,16 +507,13 @@ export default function Production() {
     if (!selectedFormula) return;
 
     if (selectedFormula.type === 'custom') {
-      // Custom formula - validate selling price and go to payment
       if (!sellingPrice || parseFloat(sellingPrice) <= 0) {
         alert('Please enter a valid selling price for the custom combination');
         return;
       }
       
-      // Custom always sells immediately
       setShowPaymentDialog(true);
     } else {
-      // Standard TELE formula - validate output and execute (add to inventory)
       if (!outputBags && !outputKgs) {
         alert('Please enter output quantity for inventory');
         return;
@@ -473,11 +529,9 @@ export default function Production() {
       const payload = {};
 
       if (selectedFormula.type === 'standard') {
-        // Standard TELE - add to inventory
         payload.outputBags = outputBags || selectedFormula.defaultOutputBags;
         payload.outputKgs = outputKgs || selectedFormula.defaultOutputKgs;
       } else {
-        // Custom - direct sale
         payload.sellingPrice = parseFloat(sellingPrice);
         payload.sellImmediately = true;
         
@@ -513,7 +567,7 @@ export default function Production() {
   };
 
   const handleCompleteFormulaSale = () => {
-    const total = parseFloat(sellingPrice); // Total price for custom batch
+    const total = parseFloat(sellingPrice);
     const totalPaid = getTotalPaid();
 
     const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
@@ -588,7 +642,7 @@ export default function Production() {
 
   const calculateTotalRevenue = () => {
     if (productionType === 'custom' && sellingPrice) {
-      return parseFloat(sellingPrice); // Total price for the custom batch
+      return parseFloat(sellingPrice);
     }
     return 0;
   };
@@ -647,6 +701,16 @@ export default function Production() {
           )}
         </div>
       </div>
+
+      {/* Auto-save indicator */}
+      {(ingredients.length > 0 || productionActive) && (
+        <Alert>
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription>
+            Your progress is being saved automatically. You can safely leave and return to this page.
+          </AlertDescription>
+        </Alert>
+      )}
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList className="grid w-full grid-cols-2">
