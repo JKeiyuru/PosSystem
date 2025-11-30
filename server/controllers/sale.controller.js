@@ -366,22 +366,20 @@ export const getDailySales = async (req, res) => {
       }
     });
 
-    // NEW REVENUE CALCULATION LOGIC
-    // Calculate revenue: NON-credit sales (paid amount) + credit payments
+    // FIXED REVENUE CALCULATION
+    // Total Revenue = All sales totals (including credit sales) + Credit payments made today
     let totalRevenue = 0;
     
-    // Add non-credit sales (these are immediate revenue)
+    // Add ALL sales (including credit) - this is total business done today
     sales.forEach(sale => {
-      if (sale.paymentMethod !== 'credit') {
-        totalRevenue += sale.amountPaid;
-      }
+      totalRevenue += sale.total;
     });
 
-    // Add credit payments (these are also revenue for the day)
+    // Add credit payments made today (these are additional cash collected from previous credit sales)
     const creditPayments = payments.reduce((sum, pmt) => sum + pmt.amount, 0);
     totalRevenue += creditPayments;
 
-    // Calculate by payment method (including credit payments)
+    // Calculate by payment method
     const totalCash = sales.filter(s => s.paymentMethod === 'cash')
       .reduce((sum, sale) => sum + sale.amountPaid, 0) + 
       payments.filter(p => p.paymentMethod === 'cash')
@@ -404,7 +402,7 @@ export const getDailySales = async (req, res) => {
 
     const totalMpesa = totalMpesaPaybill + totalMpesaBeth + totalMpesaMartin;
 
-    // Credit is the amount taken on credit (not paid) - NOT REVENUE
+    // Credit sales (amount taken on credit, not yet paid)
     const totalCredit = sales.filter(s => s.paymentMethod === 'credit')
       .reduce((sum, sale) => sum + sale.total, 0);
 
@@ -414,14 +412,14 @@ export const getDailySales = async (req, res) => {
         sales,
         payments,
         summary: {
-          totalSales: totalRevenue, // Actual revenue (non-credit sales + credit payments)
+          totalSales: totalRevenue, // Total revenue (all sales + credit payments)
           totalCash,
           totalMpesa,
           totalMpesaPaybill,
           totalMpesaBeth,
           totalMpesaMartin,
-          totalCredit, // Credit given (NOT revenue)
-          creditPaymentsToday: creditPayments, // This is included in totalSales
+          totalCredit, // Amount given on credit today
+          creditPaymentsToday: creditPayments, // Credit collected today
           salesCount: sales.length,
           paymentsCount: payments.length
         }
