@@ -1,4 +1,4 @@
-// client/src/pages/Dashboard.jsx - COMPLETE WITH ALL NEW FEATURES
+// client/src/pages/Dashboard.jsx - FIXED PROFIT CALCULATION
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -54,7 +54,6 @@ export default function Dashboard() {
   useEffect(() => {
     fetchDashboardData();
     
-    // Get last reset date from localStorage
     const savedResetDate = localStorage.getItem('analytics_reset_date');
     if (savedResetDate) {
       setLastResetDate(new Date(savedResetDate));
@@ -65,7 +64,6 @@ export default function Dashboard() {
     try {
       setLoading(true);
       
-      // Fetch core dashboard data
       const [dailySalesRes, lowStockRes, stockValueRes] = await Promise.all([
         saleService.getDailySales(),
         productService.getLowStock(),
@@ -75,14 +73,12 @@ export default function Dashboard() {
       const todaySales = dailySalesRes.data.summary;
       const salesList = dailySalesRes.data.sales;
 
-      // Initialize additional data with defaults
       let todayDebtPayments = 0;
       let monthlyProfitData = [];
       let topProductsData = [];
       let topCustomersData = [];
 
       try {
-        // Fetch top products
         const topProductsRes = await api.get('/sales/analytics/top-products', { params: { limit: 5 } });
         topProductsData = topProductsRes.data.data || [];
       } catch (error) {
@@ -90,7 +86,6 @@ export default function Dashboard() {
       }
 
       try {
-        // Fetch top customers
         const topCustomersRes = await api.get('/sales/analytics/top-customers', { params: { limit: 5 } });
         topCustomersData = topCustomersRes.data.data || [];
       } catch (error) {
@@ -98,7 +93,6 @@ export default function Dashboard() {
       }
 
       try {
-        // Fetch today's debt payments
         const debtPaymentsRes = await api.get('/debts/payments/today');
         todayDebtPayments = debtPaymentsRes.data.data?.totalPayments || 0;
       } catch (error) {
@@ -106,7 +100,6 @@ export default function Dashboard() {
       }
 
       try {
-        // Fetch monthly revenue and profit data (last 12 months)
         const monthlyRes = await api.get('/reports/monthly-profit');
         monthlyProfitData = monthlyRes.data.data?.months || [];
       } catch (error) {
@@ -134,30 +127,25 @@ export default function Dashboard() {
     }
   };
 
-  // Reset analytics functionality with confirmation
   const handleResetAnalyticsClick = () => {
     setShowResetDialog(true);
   };
 
   const handleConfirmReset = async () => {
     try {
-      // Reset the analytics data via API
       await api.post('/analytics/reset', { 
         types: ['products', 'customers'] 
       });
       
-      // Clear local state
       setTopProducts([]);
       setTopCustomers([]);
       
-      // Save reset date
       const resetDate = new Date();
       setLastResetDate(resetDate);
       localStorage.setItem('analytics_reset_date', resetDate.toISOString());
       
       setShowResetDialog(false);
       
-      // Refetch dashboard data
       fetchDashboardData();
     } catch (error) {
       console.error('Error resetting analytics:', error);
@@ -178,14 +166,13 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-4 md:space-y-6 p-3 md:p-6">
-      {/* Header - Responsive layout */}
+      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
         <div className="text-center sm:text-left">
           <h1 className="text-2xl sm:text-3xl font-bold">Dashboard</h1>
           <p className="text-sm sm:text-base text-gray-600">Welcome to Bekhal Animal Feeds POS</p>
         </div>
         
-        {/* Reset Analytics Button - Responsive */}
         <div className="flex flex-col sm:flex-row items-center gap-2">
           {lastResetDate && (
             <span className="text-xs sm:text-sm text-gray-600 text-center sm:text-left">
@@ -204,9 +191,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Cards - Responsive grid with new Debt Payments card */}
+      {/* Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
-        {/* Today's Sales Card */}
         <Card 
           className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
           onClick={() => setShowTodaysSalesDialog(true)}
@@ -223,7 +209,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Today's Revenue Card */}
         <Card className="col-span-2 md:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
             <CardTitle className="text-xs sm:text-sm font-medium">Today's Revenue</CardTitle>
@@ -239,7 +224,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* NEW: Today's Debt Payments Card */}
         <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 col-span-2 md:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
             <CardTitle className="text-xs sm:text-sm font-medium">Debt Payments</CardTitle>
@@ -255,7 +239,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Stock Value Card */}
         <Card className="col-span-2 md:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
             <CardTitle className="text-xs sm:text-sm font-medium">Stock Value</CardTitle>
@@ -271,7 +254,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Low Stock Items Card */}
         <Card 
           className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
           onClick={() => setShowLowStockDialog(true)}
@@ -289,7 +271,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* NEW: Monthly Revenue & Net Profit Chart - Last 12 Months */}
+      {/* Monthly Revenue & Net Profit Chart */}
       <Card>
         <CardHeader className="p-4 sm:p-6">
           <CardTitle className="flex items-center space-x-2 text-lg sm:text-xl">
@@ -343,9 +325,8 @@ export default function Dashboard() {
         </CardContent>
       </Card>
 
-      {/* Analytics Charts - Top Products & Top Customers (Resettable) */}
+      {/* Analytics Charts */}
       <div className="grid gap-4 md:gap-6 md:grid-cols-2">
-        {/* Top Products Chart */}
         <Card>
           <CardHeader className="p-4 sm:p-6">
             <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -392,7 +373,6 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Top Customers Chart */}
         <Card>
           <CardHeader className="p-4 sm:p-6">
             <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
@@ -440,7 +420,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Low Stock Alert - Responsive layout */}
+      {/* Low Stock Alert */}
       {lowStockProducts.length > 0 && lowStockProducts.slice(0, 3).length > 0 && (
         <Card>
           <CardHeader className="p-4 sm:p-6">
@@ -508,7 +488,7 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Low Stock Dialog - Responsive */}
+      {/* Low Stock Dialog */}
       <Dialog open={showLowStockDialog} onOpenChange={setShowLowStockDialog}>
         <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[80vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader className="pb-4">
@@ -548,7 +528,7 @@ export default function Dashboard() {
         </DialogContent>
       </Dialog>
 
-      {/* Today's Sales Dialog - Responsive */}
+      {/* Today's Sales Dialog */}
       <Dialog open={showTodaysSalesDialog} onOpenChange={setShowTodaysSalesDialog}>
         <DialogContent className="max-w-[95vw] sm:max-w-4xl max-h-[80vh] overflow-y-auto p-4 sm:p-6">
           <DialogHeader className="pb-4">
@@ -556,7 +536,6 @@ export default function Dashboard() {
           </DialogHeader>
           
           <div className="space-y-4">
-            {/* Summary Cards - Responsive */}
             <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
               <Card>
                 <CardContent className="p-3 sm:p-6">
@@ -580,7 +559,6 @@ export default function Dashboard() {
               </Card>
             </div>
 
-            {/* Sales Table - Responsive */}
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
