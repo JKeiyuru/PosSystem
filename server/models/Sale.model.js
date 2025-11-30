@@ -1,4 +1,4 @@
-// server/models/Sale.model.js - UPDATED with Optional Product
+// server/models/Sale.model.js - UPDATED with buyingPrice in items
 
 import mongoose from 'mongoose';
 
@@ -39,6 +39,13 @@ const saleItemSchema = new mongoose.Schema({
   baseUnitQuantity: {
     type: Number,
     required: false, // Optional for custom products
+  },
+  // ADDED: Store buying price at time of sale for profit calculation
+  buyingPrice: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0
   }
 });
 
