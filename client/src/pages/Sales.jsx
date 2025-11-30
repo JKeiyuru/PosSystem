@@ -1,4 +1,4 @@
-// client/src/pages/Sales.jsx - WITH SEARCH BY SALE NUMBER AND CUSTOMER NAME
+// client/src/pages/Sales.jsx - WITH TOTAL PROFIT CARD
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -22,7 +22,7 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Eye, Printer, Edit, Trash2, Download, Search } from 'lucide-react';
+import { Eye, Printer, Edit, Trash2, Download, Search, TrendingUp } from 'lucide-react';
 import { saleService } from '../services/sale.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import Receipt from '../components/pos/Receipt';
@@ -35,11 +35,11 @@ import { useAuth } from '../hooks/useAuth';
 export default function Sales() {
   const { user } = useAuth();
   const [sales, setSales] = useState([]);
-  const [allSales, setAllSales] = useState([]); // Store all sales for filtering
+  const [allSales, setAllSales] = useState([]);
   const [selectedSale, setSelectedSale] = useState(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState(''); // NEW: Search query
+  const [searchQuery, setSearchQuery] = useState('');
   const [dateRange, setDateRange] = useState({
     startDate: new Date().toISOString().split('T')[0],
     endDate: new Date().toISOString().split('T')[0]
@@ -59,7 +59,6 @@ export default function Sales() {
     fetchBusinessInfo();
   }, [dateRange, filterPaymentMethod, filterPaymentStatus]);
 
-  // NEW: Filter sales based on search query
   useEffect(() => {
     if (!searchQuery.trim()) {
       setSales(allSales);
@@ -223,12 +222,26 @@ export default function Sales() {
     return <Badge variant={statuses[status]?.color || 'default'}>{statuses[status]?.label || status}</Badge>;
   };
 
+  // NEW: Calculate totals including profit
   const calculateTotals = () => {
     const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
     const totalPaid = sales.reduce((sum, sale) => sum + sale.amountPaid, 0);
     const totalDue = sales.reduce((sum, sale) => sum + sale.amountDue, 0);
     
-    return { totalRevenue, totalPaid, totalDue };
+    // Calculate total profit (cost of goods sold)
+    let totalCost = 0;
+    sales.forEach(sale => {
+      sale.items?.forEach(item => {
+        if (item.product && item.product.buyingPrice) {
+          const costForItem = item.product.buyingPrice * (item.baseUnitQuantity || item.quantity);
+          totalCost += costForItem;
+        }
+      });
+    });
+    
+    const totalProfit = totalRevenue - totalCost;
+    
+    return { totalRevenue, totalPaid, totalDue, totalProfit };
   };
 
   const totals = calculateTotals();
@@ -243,8 +256,8 @@ export default function Sales() {
           </div>
         </div>
 
-        {/* Summary Cards */}
-        <div className="grid gap-4 md:grid-cols-3">
+        {/* Summary Cards - WITH NEW PROFIT CARD */}
+        <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
@@ -263,6 +276,22 @@ export default function Sales() {
             </CardContent>
           </Card>
 
+          {/* NEW: Total Profit Card */}
+          <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium flex items-center">
+                <TrendingUp className="h-4 w-4 mr-2 text-green-600" />
+                Total Profit
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-700">{formatCurrency(totals.totalProfit)}</div>
+              <p className="text-xs text-green-600 mt-1">
+                For selected period
+              </p>
+            </CardContent>
+          </Card>
+
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Amount Due</CardTitle>
@@ -273,11 +302,10 @@ export default function Sales() {
           </Card>
         </div>
 
-        {/* Filters - WITH NEW SEARCH BAR */}
+        {/* Filters - WITH SEARCH BAR */}
         <Card>
           <CardContent className="pt-6">
             <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
-              {/* NEW: Search Bar */}
               <div className="space-y-2 md:col-span-2">
                 <Label>Search</Label>
                 <div className="relative">
