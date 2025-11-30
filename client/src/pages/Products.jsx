@@ -1,4 +1,4 @@
-// client/src/pages/Products.jsx - UPDATED with Cashier Restrictions
+// client/src/pages/Products.jsx - COMPLETE WITH ALL FEATURES
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -22,7 +22,8 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Plus, Edit, Trash2, Barcode, Upload, Search, X, History } from 'lucide-react';
+import { Alert, AlertDescription } from '../components/ui/alert';
+import { Plus, Edit, Trash2, Barcode, Upload, Search, X, History, AlertCircle } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { formatCurrency } from '../lib/utils';
 import { useAuth } from '../hooks/useAuth';
@@ -38,14 +39,14 @@ export default function Products() {
   const [isImportDialogOpen, setIsImportDialogOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
   const [showQuantityLog, setShowQuantityLog] = useState(false);
-  const [quantityLog, setQuantityLog] = useState([]);
+  const [quantityChangeInfo, setQuantityChangeInfo] = useState(null);
   
   const [formData, setFormData] = useState({
     name: '',
     category: '',
     description: '',
     baseUnit: 'bag',
-    baseUnitSize: '50', // Default bag size in kg
+    baseUnitSize: '50',
     buyingPrice: '',
     sellingPrice: '',
     quantity: '',
@@ -55,7 +56,6 @@ export default function Products() {
     subUnits: []
   });
 
-  // Check if user can edit/delete products (admin and manager only)
   const canEditProducts = user && (user.role === 'admin' || user.role === 'manager');
 
   useEffect(() => {
@@ -85,9 +85,8 @@ export default function Products() {
     }
   };
 
-  // Auto-calculate conversion rate with editable option
   const calculateConversionRate = (unitType, sellingPrice, unitPrice, manualRate = null) => {
-    if (manualRate) return manualRate; // Use manual rate if provided
+    if (manualRate) return manualRate;
     
     const baseSelling = parseFloat(sellingPrice) || 0;
     const perUnitPrice = parseFloat(unitPrice) || 0;
@@ -110,6 +109,22 @@ export default function Products() {
     return conversionRate.toFixed(2);
   };
 
+  const handleQuantityChange = (newQuantity) => {
+    if (editingProduct) {
+      const previousQty = parseFloat(editingProduct.quantity);
+      const newQty = parseFloat(newQuantity);
+      const difference = newQty - previousQty;
+      
+      setQuantityChangeInfo({
+        previousQuantity: previousQty,
+        quantityAdded: difference,
+        newQuantity: newQty
+      });
+    }
+    
+    setFormData({ ...formData, quantity: newQuantity });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     
@@ -119,24 +134,6 @@ export default function Products() {
     }
 
     try {
-      // Generate quantity log entry if updating quantity
-      if (editingProduct && formData.quantity !== editingProduct.quantity) {
-        const previousQty = parseFloat(editingProduct.quantity);
-        const newQty = parseFloat(formData.quantity);
-        const difference = newQty - previousQty;
-        
-        const logEntry = {
-          date: new Date(),
-          previousQuantity: previousQty,
-          quantityAdded: difference,
-          newQuantity: newQty,
-          user: user.name
-        };
-        
-        // This would be stored in backend in real implementation
-        console.log('Quantity change log:', logEntry);
-      }
-
       const updatedSubUnits = formData.subUnits.map(subUnit => ({
         ...subUnit,
         conversionRate: parseFloat(subUnit.conversionRate) || 0,
@@ -153,6 +150,15 @@ export default function Products() {
 
       if (editingProduct) {
         await productService.update(editingProduct._id, dataToSubmit);
+        
+        if (quantityChangeInfo) {
+          console.log('Quantity Change Log:', {
+            product: editingProduct.name,
+            ...quantityChangeInfo,
+            timestamp: new Date(),
+            user: user.name
+          });
+        }
       } else {
         await productService.create(dataToSubmit);
       }
@@ -161,6 +167,8 @@ export default function Products() {
       resetForm();
       fetchProducts();
       fetchCategories();
+      setQuantityChangeInfo(null);
+      alert('Product saved successfully!');
     } catch (error) {
       console.error('Error saving product:', error);
       alert('Error saving product: ' + (error.response?.data?.message || error.message));
@@ -188,6 +196,7 @@ export default function Products() {
       hasMultipleUnits: product.hasMultipleUnits || false,
       subUnits: product.subUnits || []
     });
+    setQuantityChangeInfo(null);
     setIsDialogOpen(true);
   };
 
@@ -201,8 +210,10 @@ export default function Products() {
       try {
         await productService.delete(id);
         fetchProducts();
+        alert('Product deleted successfully!');
       } catch (error) {
         console.error('Error deleting product:', error);
+        alert('Error deleting product');
       }
     }
   };
@@ -233,6 +244,7 @@ export default function Products() {
       subUnits: []
     });
     setEditingProduct(null);
+    setQuantityChangeInfo(null);
   };
 
   const addSubUnit = () => {
@@ -260,7 +272,6 @@ export default function Products() {
     const newSubUnits = [...formData.subUnits];
     newSubUnits[index][field] = value;
     
-    // Auto-calculate conversion rate when price per unit changes (if not manual)
     if (field === 'pricePerUnit' && !newSubUnits[index].manualConversionRate) {
       const conversionRate = calculateConversionRate(
         newSubUnits[index].name,
@@ -270,7 +281,6 @@ export default function Products() {
       newSubUnits[index].conversionRate = conversionRate;
     }
     
-    // Set profit margin based on unit type
     if (field === 'name') {
       newSubUnits[index].profitMargin = value === 'kasuku' ? 60 : value === 'bucket' ? 100 : 0;
       if (!newSubUnits[index].manualConversionRate) {
@@ -282,11 +292,9 @@ export default function Products() {
       }
     }
 
-    // Toggle manual conversion rate
     if (field === 'manualConversionRate') {
       newSubUnits[index][field] = value;
       if (!value && newSubUnits[index].pricePerUnit) {
-        // Recalculate if switching back to auto
         newSubUnits[index].conversionRate = calculateConversionRate(
           newSubUnits[index].name,
           formData.sellingPrice,
@@ -295,7 +303,6 @@ export default function Products() {
       }
     }
 
-    // Allow manual editing of conversion rate
     if (field === 'conversionRate') {
       newSubUnits[index].manualConversionRate = true;
     }
@@ -305,7 +312,7 @@ export default function Products() {
 
   const handleSellingPriceChange = (value) => {
     const updatedSubUnits = formData.subUnits.map(subUnit => {
-      if (subUnit.manualConversionRate) return subUnit; // Don't recalculate manual rates
+      if (subUnit.manualConversionRate) return subUnit;
       
       return {
         ...subUnit,
@@ -436,7 +443,6 @@ export default function Products() {
         )}
       </div>
 
-      {/* Filters */}
       <Card>
         <CardContent className="pt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -466,7 +472,6 @@ export default function Products() {
         </CardContent>
       </Card>
 
-      {/* Products Table - With horizontal scroll container */}
       <Card>
         <CardHeader>
           <CardTitle>All Products</CardTitle>
@@ -553,7 +558,261 @@ export default function Products() {
         </CardContent>
       </Card>
 
-      {/* Add/Edit Product Dialog - Continued in next message due to length... */}
+      {/* Add/Edit Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingProduct ? 'Edit Product' : 'Add New Product'}</DialogTitle>
+          </DialogHeader>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Product Name *</Label>
+                <Input
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Category *</Label>
+                <Input
+                  value={formData.category}
+                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Base Unit</Label>
+                <Select 
+                  value={formData.baseUnit} 
+                  onValueChange={(value) => setFormData({ ...formData, baseUnit: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bag">Bag</SelectItem>
+                    <SelectItem value="kg">Kilogram</SelectItem>
+                    <SelectItem value="piece">Piece</SelectItem>
+                    <SelectItem value="liter">Liter</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Bag Weight (kg) *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formData.baseUnitSize}
+                  onChange={(e) => setFormData({ ...formData, baseUnitSize: e.target.value })}
+                  required
+                />
+                <p className="text-xs text-gray-600">Weight per bag (e.g., 50kg or 70kg)</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Buying Price *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formData.buyingPrice}
+                  onChange={(e) => setFormData({ ...formData, buyingPrice: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Selling Price *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formData.sellingPrice}
+                  onChange={( e) => handleSellingPriceChange(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label>Quantity *</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={formData.quantity}
+                  onChange={(e) => handleQuantityChange(e.target.value)}
+                  required
+                />
+                {quantityChangeInfo && (
+                  <Alert className="mt-2">
+                    <History className="h-4 w-4" />
+                    <AlertDescription>
+                      <strong>Quantity Change:</strong><br/>
+                      Previous: {quantityChangeInfo.previousQuantity} {formData.baseUnit}<br/>
+                      Added: {quantityChangeInfo.quantityAdded > 0 ? '+' : ''}{quantityChangeInfo.quantityAdded} {formData.baseUnit}<br/>
+                      New Total: {quantityChangeInfo.newQuantity} {formData.baseUnit}
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label>Reorder Level</Label>
+                <Input
+                  type="number"
+                  value={formData.reorderLevel}
+                  onChange={(e) => setFormData({ ...formData, reorderLevel: e.target.value })}
+                />
+              </div>
+
+              <div className="col-span-2 space-y-2">
+                <Label>Supplier</Label>
+                <Input
+                  value={formData.supplier}
+                  onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
+                />
+              </div>
+
+              <div className="col-span-2 space-y-2">
+                <Label>Description</Label>
+                <Input
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                />
+              </div>
+            </div>
+
+            {/* Multiple Units Section */}
+            <div className="border-t pt-4">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <Label className="text-lg">Multiple Sales Units</Label>
+                  <p className="text-sm text-gray-600">Allow selling in kg, kasuku, buckets, etc.</p>
+                </div>
+                <Button
+                  type="button"
+                  variant={formData.hasMultipleUnits ? 'default' : 'outline'}
+                  onClick={() => setFormData({ ...formData, hasMultipleUnits: !formData.hasMultipleUnits })}
+                >
+                  {formData.hasMultipleUnits ? 'Enabled' : 'Disabled'}
+                </Button>
+              </div>
+
+              {formData.hasMultipleUnits && (
+                <div className="space-y-4">
+                  {formData.subUnits.map((subUnit, index) => (
+                    <Card key={index}>
+                      <CardContent className="pt-4">
+                        <div className="grid grid-cols-4 gap-4">
+                          <div className="space-y-2">
+                            <Label>Unit Type</Label>
+                            <Select 
+                              value={subUnit.name}
+                              onValueChange={(value) => updateSubUnit(index, 'name', value)}
+                            >
+                              <SelectTrigger>
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="kg">Kilogram (kg)</SelectItem>
+                                <SelectItem value="kasuku">Kasuku</SelectItem>
+                                <SelectItem value="bucket">Bucket</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label>Price Per Unit</Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={subUnit.pricePerUnit}
+                              onChange={(e) => updateSubUnit(index, 'pricePerUnit', e.target.value)}
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label>
+                              Conversion Rate
+                              {subUnit.manualConversionRate && (
+                                <Badge variant="secondary" className="ml-2 text-xs">Manual</Badge>
+                              )}
+                            </Label>
+                            <Input
+                              type="number"
+                              step="0.01"
+                              value={subUnit.conversionRate}
+                              onChange={(e) => updateSubUnit(index, 'conversionRate', e.target.value)}
+                            />
+                            <p className="text-xs text-gray-600">
+                              {subUnit.name}s per {formData.baseUnit}
+                            </p>
+                          </div>
+
+                          <div className="flex items-end">
+                            <Button
+                              type="button"
+                              variant="destructive"
+                              onClick={() => removeSubUnit(index)}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+
+                        {subUnit.profitMargin > 0 && (
+                          <Alert className="mt-2">
+                            <AlertCircle className="h-4 w-4" />
+                            <AlertDescription>
+                              Profit margin: {formatCurrency(subUnit.profitMargin)} added to base price
+                            </AlertDescription>
+                          </Alert>
+                        )}
+                      </CardContent>
+                    </Card>
+                  ))}
+
+                  <Button type="button" variant="outline" onClick={addSubUnit} className="w-full">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Sales Unit
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit">
+                {editingProduct ? 'Update Product' : 'Add Product'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Dialog */}
+      <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Import Products from Excel</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-gray-600">
+              Upload an Excel file with product data. Required columns: Name, Category, Buying Price, Selling Price, Quantity
+            </p>
+            <Input
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              onChange={handleImportExcel}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
