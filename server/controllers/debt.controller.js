@@ -82,6 +82,59 @@ export const getAllDebts = async (req, res) => {
   }
 };
 
+// NEW: Get today's debt payments
+export const getTodayDebtPayments = async (req, res) => {
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // Get payment transactions for today
+    const todayPayments = await PaymentTransaction.aggregate([
+      {
+        $match: {
+          createdAt: {
+            $gte: today,
+            $lt: tomorrow
+          }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalPayments: { $sum: '$amount' },
+          paymentCount: { $sum: 1 },
+          payments: { 
+            $push: {
+              customer: '$customerName',
+              amount: '$amount',
+              method: '$paymentMethod',
+              date: '$createdAt'
+            }
+          }
+        }
+      }
+    ]);
+
+    const result = todayPayments.length > 0 ? todayPayments[0] : {
+      totalPayments: 0,
+      paymentCount: 0,
+      payments: []
+    };
+
+    res.json({
+      success: true,
+      data: result
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 export const recordDebtPayment = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
