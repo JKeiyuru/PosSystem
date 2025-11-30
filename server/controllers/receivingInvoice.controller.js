@@ -1,4 +1,4 @@
-// server/controllers/receivingInvoice.controller.js - NEW FILE
+// server/controllers/receivingInvoice.controller.js - FIXED
 
 import ReceivingInvoice from '../models/ReceivingInvoice.model.js';
 import Product from '../models/Product.model.js';
@@ -20,9 +20,7 @@ export const createReceivingInvoice = async (req, res) => {
       buyingPrice,
       previousBuyingPrice,
       priceChanged,
-      notes,
-      receivedBy,
-      receivedByName
+      notes
     } = req.body;
 
     // Validate product exists
@@ -43,7 +41,7 @@ export const createReceivingInvoice = async (req, res) => {
     product.lastRestocked = new Date();
     await product.save({ session });
 
-    // Record stock movement
+    // Record stock movement - FIXED: Use req.user.id for performedBy
     await StockMovement.create([{
       product: product._id,
       movementType: 'restock',
@@ -53,7 +51,7 @@ export const createReceivingInvoice = async (req, res) => {
       buyingPrice: parseFloat(buyingPrice),
       reference: `Receiving Invoice: ${invoiceNumber}`,
       notes: `Supplier: ${supplier}`,
-      performedBy: receivedBy
+      performedBy: req.user.id // FIXED: Changed from receivedBy to req.user.id
     }], { session });
 
     // Create receiving invoice record
@@ -68,8 +66,8 @@ export const createReceivingInvoice = async (req, res) => {
       previousBuyingPrice: parseFloat(previousBuyingPrice),
       priceChanged: priceChanged || false,
       notes,
-      receivedBy,
-      receivedByName
+      receivedBy: req.user.id, // User who received
+      receivedByName: req.user.name
     }], { session });
 
     await session.commitTransaction();
