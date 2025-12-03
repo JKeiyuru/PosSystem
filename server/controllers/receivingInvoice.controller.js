@@ -1,121 +1,152 @@
-// server/controllers/receivingInvoice.controller.js - FIXED
+// server/controllers/receivingInvoice.controller.js - UPDATED
 
 import ReceivingInvoice from '../models/ReceivingInvoice.model.js';
 import Product from '../models/Product.model.js';
-import StockMovement from '../models/StockMovement.model.js';
-import mongoose from 'mongoose';
 
 export const createReceivingInvoice = async (req, res) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const { 
       invoiceNumber, 
       date, 
       supplier, 
-      product: productId, 
-      productName,
-      quantity, 
-      buyingPrice,
-      previousBuyingPrice,
-      priceChanged,
-      notes
+      items,
+      actualInvoiceAmount,
+      varianceReason,
+      paymentStatus,
+      notes 
     } = req.body;
 
-    // Validate product exists
-    const product = await Product.findById(productId).session(session);
-    if (!product) {
-      throw new Error('Product not found');
+    // Validate items
+    if (!items || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'At least one product is required'
+      });
     }
 
-    // Update product inventory
-    const previousQuantity = product.quantity;
-    product.quantity += parseFloat(quantity);
-    
-    // Update buying price if changed
-    if (priceChanged) {
-      product.buyingPrice = parseFloat(buyingPrice);
+    // Process each item and update product inventory
+    const processedItems = [];
+    const priceChanges = [];
+
+    for (const item of items) {
+      const product = await Product.findById(item.productId);
+      
+      if (!product) {
+        return res.status(404).json({
+          success: false,
+          message: `Product not found: ${item.productId}`
+        });
+      }
+
+      const previousBuyingPrice = product.buyingPrice;
+      const newBuyingPrice = parseFloat(item.buyingPrice);
+      const priceChanged = Math.abs(newBuyingPrice - previousBuyingPrice) > 0.01;
+
+      // Update product inventory and buying price
+      product.quantity += parseFloat(item.quantity);
+      product.buyingPrice = newBuyingPrice;
+      await product.save();
+
+      processedItems.push({
+        product: product._id,
+        productName: product.name,
+        quantity: parseFloat(item.quantity),
+        buyingPrice: newBuyingPrice,
+        previousBuyingPrice: previousBuyingPrice,
+        priceChanged: priceChanged,
+        itemTotal: parseFloat(item.quantity) * newBuyingPrice
+      });
+
+      if (priceChanged) {
+        priceChanges.push({
+          productName: product.name,
+          previousPrice: previousBuyingPrice,
+          newPrice: newBuyingPrice
+        });
+      }
     }
 
-    product.lastRestocked = new Date();
-    await product.save({ session });
+    // Calculate totals
+    const calculatedTotal = processedItems.reduce((sum, item) => sum + item.itemTotal, 0);
+    const variance = parseFloat(actualInvoiceAmount) - calculatedTotal;
 
-    // Record stock movement - FIXED: Use req.user.id for performedBy
-    await StockMovement.create([{
-      product: product._id,
-      movementType: 'restock',
-      quantity: parseFloat(quantity),
-      previousQuantity,
-      newQuantity: product.quantity,
-      buyingPrice: parseFloat(buyingPrice),
-      reference: `Receiving Invoice: ${invoiceNumber}`,
-      notes: `Supplier: ${supplier}`,
-      performedBy: req.user.id // FIXED: Changed from receivedBy to req.user.id
-    }], { session });
+    // Validate variance reason if there's a variance
+    if (Math.abs(variance) > 0.01 && !varianceReason) {
+      return res.status(400).json({
+        success: false,
+        message: 'Variance reason is required when actual amount differs from calculated total'
+      });
+    }
 
-    // Create receiving invoice record
-    const receivingInvoice = await ReceivingInvoice.create([{
+    // Create receiving invoice
+    const receivingInvoice = await ReceivingInvoice.create({
       invoiceNumber,
-      date: new Date(date),
+      date,
       supplier,
-      product: product._id,
-      productName: product.name,
-      quantity: parseFloat(quantity),
-      buyingPrice: parseFloat(buyingPrice),
-      previousBuyingPrice: parseFloat(previousBuyingPrice),
-      priceChanged: priceChanged || false,
+      items: processedItems,
+      calculatedTotal,
+      actualInvoiceAmount: parseFloat(actualInvoiceAmount),
+      variance,
+      varianceReason: variance !== 0 ? varianceReason : null,
+      paymentStatus: paymentStatus || 'unpaid',
       notes,
-      receivedBy: req.user.id, // User who received
+      receivedBy: req.user.id,
       receivedByName: req.user.name
-    }], { session });
+    });
 
-    await session.commitTransaction();
+    const populatedInvoice = await ReceivingInvoice.findById(receivingInvoice._id)
+      .populate('items.product')
+      .populate('receivedBy', 'name email');
 
     res.status(201).json({
       success: true,
       message: 'Goods received successfully',
-      data: receivingInvoice[0]
+      data: populatedInvoice,
+      priceChanges: priceChanges
     });
   } catch (error) {
-    await session.abortTransaction();
+    console.error('Error creating receiving invoice:', error);
     res.status(500).json({
       success: false,
       message: error.message
     });
-  } finally {
-    session.endSession();
   }
 };
 
 export const getAllReceivingInvoices = async (req, res) => {
   try {
-    const { startDate, endDate, supplier, product } = req.query;
+    const { search, paymentStatus, startDate, endDate } = req.query;
     
     let query = {};
 
+    // Search by invoice number or supplier
+    if (search) {
+      query.$or = [
+        { invoiceNumber: { $regex: search, $options: 'i' } },
+        { supplier: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Filter by payment status
+    if (paymentStatus) {
+      query.paymentStatus = paymentStatus;
+    }
+
+    // Filter by date range
     if (startDate || endDate) {
       query.date = {};
       if (startDate) query.date.$gte = new Date(startDate);
       if (endDate) query.date.$lte = new Date(endDate);
     }
 
-    if (supplier) {
-      query.supplier = { $regex: supplier, $options: 'i' };
-    }
-
-    if (product) {
-      query.product = product;
-    }
-
-    const receivingInvoices = await ReceivingInvoice.find(query)
-      .populate('product', 'name category')
+    const invoices = await ReceivingInvoice.find(query)
+      .populate('items.product')
       .populate('receivedBy', 'name email')
-      .sort({ date: -1 });
+      .sort({ date: -1, createdAt: -1 });
 
     res.json({
       success: true,
-      data: receivingInvoices
+      data: invoices
     });
   } catch (error) {
     res.status(500).json({
@@ -127,11 +158,11 @@ export const getAllReceivingInvoices = async (req, res) => {
 
 export const getReceivingInvoiceById = async (req, res) => {
   try {
-    const receivingInvoice = await ReceivingInvoice.findById(req.params.id)
-      .populate('product')
+    const invoice = await ReceivingInvoice.findById(req.params.id)
+      .populate('items.product')
       .populate('receivedBy', 'name email');
 
-    if (!receivingInvoice) {
+    if (!invoice) {
       return res.status(404).json({
         success: false,
         message: 'Receiving invoice not found'
@@ -140,7 +171,7 @@ export const getReceivingInvoiceById = async (req, res) => {
 
     res.json({
       success: true,
-      data: receivingInvoice
+      data: invoice
     });
   } catch (error) {
     res.status(500).json({
@@ -158,28 +189,77 @@ export const getDailyReceivingReport = async (req, res) => {
     const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
     const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
 
-    const receivingInvoices = await ReceivingInvoice.find({
+    const invoices = await ReceivingInvoice.find({
       date: {
         $gte: startOfDay,
         $lte: endOfDay
       }
-    }).populate('product').populate('receivedBy', 'name');
+    })
+    .populate('items.product')
+    .populate('receivedBy', 'name email')
+    .sort({ createdAt: -1 });
 
-    const totalCost = receivingInvoices.reduce((sum, inv) => sum + inv.totalCost, 0);
-    const totalItems = receivingInvoices.length;
-    const priceChanges = receivingInvoices.filter(inv => inv.priceChanged).length;
+    // Calculate summary
+    const summary = {
+      totalInvoices: invoices.length,
+      totalAmount: invoices.reduce((sum, inv) => sum + inv.actualInvoiceAmount, 0),
+      totalPaid: invoices.filter(inv => inv.paymentStatus === 'paid').length,
+      totalUnpaid: invoices.filter(inv => inv.paymentStatus === 'unpaid').length,
+      amountPaid: invoices
+        .filter(inv => inv.paymentStatus === 'paid')
+        .reduce((sum, inv) => sum + inv.actualInvoiceAmount, 0),
+      amountUnpaid: invoices
+        .filter(inv => inv.paymentStatus === 'unpaid')
+        .reduce((sum, inv) => sum + inv.actualInvoiceAmount, 0),
+      totalVariance: invoices.reduce((sum, inv) => sum + inv.variance, 0),
+      uniqueSuppliers: [...new Set(invoices.map(inv => inv.supplier))].length,
+      totalItems: invoices.reduce((sum, inv) => sum + inv.items.length, 0)
+    };
 
     res.json({
       success: true,
-      data: {
-        date: targetDate,
-        summary: {
-          totalItems,
-          totalCost,
-          priceChanges
-        },
-        invoices: receivingInvoices
-      }
+      date: targetDate,
+      summary,
+      invoices
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+export const updatePaymentStatus = async (req, res) => {
+  try {
+    const { paymentStatus } = req.body;
+
+    if (!['paid', 'unpaid'].includes(paymentStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid payment status'
+      });
+    }
+
+    const invoice = await ReceivingInvoice.findByIdAndUpdate(
+      req.params.id,
+      { paymentStatus },
+      { new: true }
+    )
+    .populate('items.product')
+    .populate('receivedBy', 'name email');
+
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        message: 'Invoice not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Payment status updated successfully',
+      data: invoice
     });
   } catch (error) {
     res.status(500).json({
