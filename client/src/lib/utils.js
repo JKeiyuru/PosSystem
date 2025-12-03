@@ -32,3 +32,16 @@ export function formatDateTime(date) {
     minute: '2-digit'
   });
 }
+
+// Add this function to your utils.js file
+export function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
