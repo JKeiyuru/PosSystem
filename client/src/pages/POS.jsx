@@ -1,5 +1,5 @@
 /* eslint-disable no-unused-vars */
-// client/src/pages/POS.jsx - UPDATED with Close Business at Top Right
+// client/src/pages/POS.jsx - UPDATED: Credit validation, new payment methods
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -18,7 +18,6 @@ import ReceiptActions from '../components/pos/ReceiptActions';
 import api from '../services/api';
 import CloseOfBusinessDialog from '../components/reports/CloseOfBusinessDialog';
 import { useAuth } from '../hooks/useAuth';
-
 
 export default function POS() {
   const { user } = useAuth();
@@ -231,6 +230,13 @@ export default function POS() {
 
     const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
     
+    // ADDED: Check if credit payment without customer
+    const hasCreditPayment = splitPayments.some(p => p.method === 'credit');
+    if (hasCreditPayment && (!selectedCustomer || selectedCustomer === 'none')) {
+      alert('⚠️ Credit sales require a customer to be selected!\n\nPlease select a customer from the dropdown before proceeding with a credit sale.');
+      return;
+    }
+
     if (validPayments.length === 0) {
       const hasCredit = splitPayments.some(p => p.method === 'credit');
       if (!hasCredit) {
@@ -639,6 +645,8 @@ export default function POS() {
                       <SelectContent>
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="mpesa_paybill">M-Pesa (Paybill)</SelectItem>
+                        <SelectItem value="mpesa_till">M-Pesa (Till)</SelectItem>
+                        <SelectItem value="gdc_paybill">GDC Paybill</SelectItem>
                         <SelectItem value="mpesa_beth">M-Pesa (Beth)</SelectItem>
                         <SelectItem value="mpesa_martin">M-Pesa (Martin)</SelectItem>
                         <SelectItem value="credit">Credit</SelectItem>
@@ -670,6 +678,18 @@ export default function POS() {
                 </div>
               ))}
             </div>
+
+            {/* Credit Warning */}
+            {splitPayments.some(p => p.method === 'credit') && (!selectedCustomer || selectedCustomer === 'none') && (
+              <div className="p-3 bg-red-50 rounded-lg border border-red-200">
+                <p className="text-sm text-red-800 font-semibold">
+                  ⚠️ Credit sales require a customer to be selected!
+                </p>
+                <p className="text-xs text-red-600 mt-1">
+                  Please go back and select a customer before proceeding.
+                </p>
+              </div>
+            )}
 
             <div className="p-4 bg-blue-50 rounded-lg space-y-2">
               <div className="flex justify-between">
