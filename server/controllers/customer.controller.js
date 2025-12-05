@@ -1,4 +1,4 @@
-// server/controllers/customer.controller.js
+// server/controllers/customer.controller.js - UPDATED with credit sync
 
 import Customer from '../models/Customer.model.js';
 import Sale from '../models/Sale.model.js';
@@ -20,11 +20,40 @@ export const getAllCustomers = async (req, res) => {
 
     const customers = await Customer.find(query).sort({ name: 1 });
 
+    // SYNC CUSTOMER CREDIT WITH ACTUAL DEBT
+    for (const customer of customers) {
+      // Calculate actual debt from sales
+      const actualDebt = await Sale.aggregate([
+        {
+          $match: {
+            customer: customer._id,
+            amountDue: { $gt: 0 }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalDebt: { $sum: '$amountDue' }
+          }
+        }
+      ]);
+
+      const calculatedDebt = actualDebt.length > 0 ? actualDebt[0].totalDebt : 0;
+      
+      // Update if there's a mismatch
+      if (Math.abs(customer.currentCredit - calculatedDebt) > 0.01) {
+        console.log(`Syncing credit for ${customer.name}: ${customer.currentCredit} -> ${calculatedDebt}`);
+        customer.currentCredit = calculatedDebt;
+        await customer.save();
+      }
+    }
+
     res.json({
       success: true,
       data: customers
     });
   } catch (error) {
+    console.error('Error in getAllCustomers:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -43,6 +72,30 @@ export const getCustomerById = async (req, res) => {
       });
     }
 
+    // Sync credit
+    const actualDebt = await Sale.aggregate([
+      {
+        $match: {
+          customer: customer._id,
+          amountDue: { $gt: 0 }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalDebt: { $sum: '$amountDue' }
+        }
+      }
+    ]);
+
+    const calculatedDebt = actualDebt.length > 0 ? actualDebt[0].totalDebt : 0;
+    
+    if (Math.abs(customer.currentCredit - calculatedDebt) > 0.01) {
+      console.log(`Syncing credit for ${customer.name}: ${customer.currentCredit} -> ${calculatedDebt}`);
+      customer.currentCredit = calculatedDebt;
+      await customer.save();
+    }
+
     // Get customer sales history
     const sales = await Sale.find({ customer: customer._id })
       .sort({ createdAt: -1 })
@@ -56,6 +109,7 @@ export const getCustomerById = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Error in getCustomerById:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -74,6 +128,29 @@ export const getCustomerSalesHistory = async (req, res) => {
         success: false,
         message: 'Customer not found'
       });
+    }
+
+    // Sync credit
+    const actualDebt = await Sale.aggregate([
+      {
+        $match: {
+          customer: customer._id,
+          amountDue: { $gt: 0 }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalDebt: { $sum: '$amountDue' }
+        }
+      }
+    ]);
+
+    const calculatedDebt = actualDebt.length > 0 ? actualDebt[0].totalDebt : 0;
+    
+    if (Math.abs(customer.currentCredit - calculatedDebt) > 0.01) {
+      customer.currentCredit = calculatedDebt;
+      await customer.save();
     }
 
     let query = { customer: customerId };
@@ -124,6 +201,7 @@ export const getCustomerSalesHistory = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Error in getCustomerSalesHistory:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -141,6 +219,7 @@ export const createCustomer = async (req, res) => {
       data: customer
     });
   } catch (error) {
+    console.error('Error in createCustomer:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -169,6 +248,7 @@ export const updateCustomer = async (req, res) => {
       data: customer
     });
   } catch (error) {
+    console.error('Error in updateCustomer:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -196,6 +276,7 @@ export const deleteCustomer = async (req, res) => {
       message: 'Customer deleted successfully'
     });
   } catch (error) {
+    console.error('Error in deleteCustomer:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -210,11 +291,37 @@ export const getCustomersWithCredit = async (req, res) => {
       currentCredit: { $gt: 0 }
     }).sort({ currentCredit: -1 });
 
+    // Sync credit for all customers with debt
+    for (const customer of customers) {
+      const actualDebt = await Sale.aggregate([
+        {
+          $match: {
+            customer: customer._id,
+            amountDue: { $gt: 0 }
+          }
+        },
+        {
+          $group: {
+            _id: null,
+            totalDebt: { $sum: '$amountDue' }
+          }
+        }
+      ]);
+
+      const calculatedDebt = actualDebt.length > 0 ? actualDebt[0].totalDebt : 0;
+      
+      if (Math.abs(customer.currentCredit - calculatedDebt) > 0.01) {
+        customer.currentCredit = calculatedDebt;
+        await customer.save();
+      }
+    }
+
     res.json({
       success: true,
       data: customers
     });
   } catch (error) {
+    console.error('Error in getCustomersWithCredit:', error);
     res.status(500).json({
       success: false,
       message: error.message
