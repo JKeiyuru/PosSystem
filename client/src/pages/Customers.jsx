@@ -1,4 +1,4 @@
-// client/src/pages/Customers.jsx - Enhanced with Sales History
+// client/src/pages/Customers.jsx - UPDATED: Display debts only, no payment functionality
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -22,23 +22,21 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Plus, Edit, Trash2, Search, CreditCard, DollarSign, History, Eye } from 'lucide-react';
+import { Plus, Edit, Trash2, Search, CreditCard, History } from 'lucide-react';
 import { customerService } from '../services/customer.service';
-import { saleService } from '../services/sale.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import api from '../services/api';
+import { useNavigate } from 'react-router-dom';
 
 export default function Customers() {
+  const navigate = useNavigate();
   const [customers, setCustomers] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [isCreditDialogOpen, setIsCreditDialogOpen] = useState(false);
   const [isSalesHistoryDialogOpen, setIsSalesHistoryDialogOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [selectedCustomer, setSelectedCustomer] = useState(null);
-  const [customerSales, setCustomerSales] = useState([]);
   const [salesHistory, setSalesHistory] = useState(null);
-  const [paymentAmount, setPaymentAmount] = useState('');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -62,20 +60,9 @@ export default function Customers() {
     }
   };
 
-  const handleCreditClick = async (customer) => {
-    try {
-      setSelectedCustomer(customer);
-      
-      const response = await saleService.getAll({
-        customer: customer._id,
-        paymentStatus: 'unpaid,partial'
-      });
-      
-      setCustomerSales(response.data.filter(sale => sale.amountDue > 0));
-      setIsCreditDialogOpen(true);
-    } catch (error) {
-      console.error('Error fetching customer sales:', error);
-    }
+  const handleCreditClick = (customer) => {
+    // Redirect to debts page with customer filter
+    navigate('/debts', { state: { customerId: customer._id, customerName: customer.name } });
   };
 
   const handleViewSalesHistory = async (customer) => {
@@ -87,25 +74,6 @@ export default function Customers() {
     } catch (error) {
       console.error('Error fetching sales history:', error);
       alert('Error loading sales history');
-    }
-  };
-
-  const handlePayment = async (saleId) => {
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
-      alert('Please enter a valid payment amount');
-      return;
-    }
-
-    try {
-      await saleService.updatePayment(saleId, { amountPaid: parseFloat(paymentAmount) });
-      alert('Payment recorded successfully');
-      
-      await handleCreditClick(selectedCustomer);
-      await fetchCustomers();
-      setPaymentAmount('');
-    } catch (error) {
-      console.error('Error recording payment:', error);
-      alert('Error recording payment: ' + (error.response?.data?.message || error.message));
     }
   };
 
@@ -230,6 +198,7 @@ export default function Customers() {
                       <button
                         onClick={() => handleCreditClick(customer)}
                         className="text-red-600 font-semibold flex items-center hover:underline cursor-pointer"
+                        title="Click to go to Debts page"
                       >
                         <CreditCard className="h-4 w-4 mr-1" />
                         {formatCurrency(customer.currentCredit)}
@@ -365,90 +334,6 @@ export default function Customers() {
               </Button>
             </DialogFooter>
           </form>
-        </DialogContent>
-      </Dialog>
-
-      {/* Credit Payment Dialog */}
-      <Dialog open={isCreditDialogOpen} onOpenChange={setIsCreditDialogOpen}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              Credit Details - {selectedCustomer?.name}
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <Card className="bg-red-50">
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600">Total Credit Outstanding</p>
-                    <p className="text-3xl font-bold text-red-600">
-                      {formatCurrency(selectedCustomer?.currentCredit || 0)}
-                    </p>
-                  </div>
-                  <CreditCard className="h-12 w-12 text-red-400" />
-                </div>
-              </CardContent>
-            </Card>
-
-            <div>
-              <h3 className="font-semibold mb-3">Unpaid Sales</h3>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Sale #</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Total</TableHead>
-                    <TableHead>Paid</TableHead>
-                    <TableHead>Due</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Action</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {customerSales.map((sale) => (
-                    <TableRow key={sale._id}>
-                      <TableCell className="font-medium">{sale.saleNumber}</TableCell>
-                      <TableCell>{formatDateTime(sale.saleDate)}</TableCell>
-                      <TableCell>{formatCurrency(sale.total)}</TableCell>
-                      <TableCell className="text-green-600">{formatCurrency(sale.amountPaid)}</TableCell>
-                      <TableCell className="text-red-600 font-semibold">{formatCurrency(sale.amountDue)}</TableCell>
-                      <TableCell>
-                        <Badge variant={sale.paymentStatus === 'paid' ? 'success' : 'warning'}>
-                          {sale.paymentStatus}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center space-x-2">
-                          <Input
-                            type="number"
-                            placeholder="Amount"
-                            className="w-24"
-                            value={paymentAmount}
-                            onChange={(e) => setPaymentAmount(e.target.value)}
-                          />
-                          <Button
-                            size="sm"
-                            onClick={() => handlePayment(sale._id)}
-                          >
-                            <DollarSign className="h-4 w-4 mr-1" />
-                            Pay
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-              {customerSales.length === 0 && (
-                <div className="text-center py-8 text-gray-500">
-                  No unpaid sales found for this customer
-                </div>
-              )}
-            </div>
-          </div>
         </DialogContent>
       </Dialog>
 
