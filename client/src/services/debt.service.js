@@ -1,4 +1,4 @@
-// client/src/services/debt.service.js - NEW FILE
+// client/src/services/debt.service.js - UPDATED with delete function
 
 import api from './api';
 
@@ -15,6 +15,12 @@ export const debtService = {
 
   generateReport: async (params) => {
     const response = await api.get('/debts/report', { params });
+    return response.data;
+  },
+
+  // NEW: Delete debt
+  deleteDebt: async (customerId) => {
+    const response = await api.delete(`/debts/${customerId}`);
     return response.data;
   }
 };
