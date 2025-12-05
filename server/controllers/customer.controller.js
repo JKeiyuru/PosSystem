@@ -328,3 +328,75 @@ export const getCustomersWithCredit = async (req, res) => {
     });
   }
 };
+
+
+export const syncAllCustomerCredits = async (req, res) => {
+  try {
+    console.log('Starting customer credit synchronization...');
+
+    const customers = await Customer.find({ isActive: true });
+    let syncCount = 0;
+    let errorCount = 0;
+    const updates = [];
+
+    for (const customer of customers) {
+      try {
+        // Calculate actual debt from sales
+        const actualDebt = await Sale.aggregate([
+          {
+            $match: {
+              customer: customer._id,
+              amountDue: { $gt: 0 }
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              totalDebt: { $sum: '$amountDue' }
+            }
+          }
+        ]);
+
+        const calculatedDebt = actualDebt.length > 0 ? actualDebt[0].totalDebt : 0;
+        const roundedDebt = Math.round(calculatedDebt * 100) / 100;
+        const currentCredit = Math.round(customer.currentCredit * 100) / 100;
+        
+        if (Math.abs(currentCredit - roundedDebt) > 0.01) {
+          updates.push({
+            name: customer.name,
+            oldCredit: currentCredit,
+            newCredit: roundedDebt,
+            difference: Math.abs(currentCredit - roundedDebt)
+          });
+
+          customer.currentCredit = roundedDebt;
+          await customer.save();
+          syncCount++;
+        }
+      } catch (error) {
+        console.error(`Error syncing ${customer.name}:`, error.message);
+        errorCount++;
+      }
+    }
+
+    console.log(`Sync completed: ${syncCount} updated, ${errorCount} errors`);
+
+    res.json({
+      success: true,
+      message: 'Customer credits synchronized successfully',
+      data: {
+        totalCustomers: customers.length,
+        updated: syncCount,
+        errors: errorCount,
+        alreadyInSync: customers.length - syncCount - errorCount,
+        updates
+      }
+    });
+  } catch (error) {
+    console.error('Error in syncAllCustomerCredits:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
