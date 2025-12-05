@@ -1,4 +1,4 @@
-// server/models/PaymentTransaction.model.js
+// server/models/PaymentTransaction.model.js - UPDATED with new payment methods
 
 import mongoose from 'mongoose';
 
@@ -21,7 +21,7 @@ const paymentTransactionSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['cash', 'mpesa_paybill', 'mpesa_beth', 'mpesa_martin'],
+    enum: ['cash', 'mpesa_paybill', 'mpesa_till', 'gdc_paybill', 'mpesa_beth', 'mpesa_martin'],
     required: true
   },
   sales: [{
