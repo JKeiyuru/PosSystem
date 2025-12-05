@@ -1,4 +1,4 @@
-// server/models/Sale.model.js - UPDATED with buyingPrice in items
+// server/models/Sale.model.js - UPDATED with new payment methods
 
 import mongoose from 'mongoose';
 
@@ -6,7 +6,7 @@ const saleItemSchema = new mongoose.Schema({
   product: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product',
-    required: false // Made optional for custom production sales
+    required: false
   },
   productName: {
     type: String,
@@ -38,9 +38,8 @@ const saleItemSchema = new mongoose.Schema({
   },
   baseUnitQuantity: {
     type: Number,
-    required: false, // Optional for custom products
+    required: false,
   },
-  // ADDED: Store buying price at time of sale for profit calculation
   buyingPrice: {
     type: Number,
     required: true,
@@ -52,7 +51,7 @@ const saleItemSchema = new mongoose.Schema({
 const splitPaymentSchema = new mongoose.Schema({
   method: {
     type: String,
-    enum: ['cash', 'mpesa_paybill', 'mpesa_beth', 'mpesa_martin', 'credit'],
+    enum: ['cash', 'mpesa_paybill', 'mpesa_till', 'gdc_paybill', 'mpesa_beth', 'mpesa_martin', 'credit'],
     required: true
   },
   amount: {
@@ -95,7 +94,7 @@ const saleSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    enum: ['cash', 'mpesa_paybill', 'mpesa_beth', 'mpesa_martin', 'credit'],
+    enum: ['cash', 'mpesa_paybill', 'mpesa_till', 'gdc_paybill', 'mpesa_beth', 'mpesa_martin', 'credit'],
     required: true
   },
   splitPayments: [splitPaymentSchema],
