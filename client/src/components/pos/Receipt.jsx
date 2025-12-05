@@ -1,4 +1,4 @@
-// client/src/components/pos/Receipt.jsx - UPDATED
+// client/src/components/pos/Receipt.jsx - UPDATED with new payment methods
 
 import { forwardRef } from 'react';
 import { formatCurrency, formatDateTime } from '../../lib/utils';
@@ -8,6 +8,8 @@ const Receipt = forwardRef(({ sale, businessInfo }, ref) => {
     const methods = {
       'cash': 'Cash',
       'mpesa_paybill': 'M-Pesa (Paybill)',
+      'mpesa_till': 'M-Pesa (Till)',
+      'gdc_paybill': 'GDC Paybill',
       'mpesa_beth': 'M-Pesa (Beth)',
       'mpesa_martin': 'M-Pesa (Martin)',
       'credit': 'Credit'
