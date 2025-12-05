@@ -1,5 +1,5 @@
 /* eslint-disable no-unused-vars */
-// client/src/pages/Settings.jsx - FIXED
+// client/src/pages/Settings.jsx - UPDATED with SyncCustomerCredits
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -8,12 +8,92 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { Settings as SettingsIcon, User, Bell, Building, Users } from 'lucide-react';
+import { Settings as SettingsIcon, User, Bell, Building, Users, Database, AlertTriangle } from 'lucide-react';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
 import api from '../services/api';
 import { useAuth } from '../hooks/useAuth';
+import { RefreshCw, AlertCircle } from 'lucide-react';
+
+const SyncCustomerCredits = () => {
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState(null);
+
+  const handleSync = async () => {
+    if (!window.confirm('This will sync all customer credits with actual debts. Continue?')) {
+      return;
+    }
+
+    setSyncing(true);
+    setSyncResult(null);
+
+    try {
+      const response = await api.post('/customers/sync-credits');
+      setSyncResult(response.data.data);
+      alert(`Sync completed! Updated ${response.data.data.updated} customers.`);
+    } catch (error) {
+      console.error('Error syncing credits:', error);
+      alert('Error syncing credits: ' + (error.response?.data?.message || error.message));
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center">
+          <AlertCircle className="h-5 w-5 mr-2 text-orange-500" />
+          Customer Credits Synchronization
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <h4 className="font-semibold text-yellow-800 mb-2">Sync Customer Credits</h4>
+          <p className="text-sm text-yellow-700 mb-3">
+            This will recalculate all customer credits based on actual unpaid sales. 
+            Use this if you notice discrepancies between customer page and debts page.
+          </p>
+          <Button 
+            onClick={handleSync} 
+            disabled={syncing}
+            variant="outline"
+            className="border-yellow-400 text-yellow-700 hover:bg-yellow-50"
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing...' : 'Sync Customer Credits'}
+          </Button>
+        </div>
+
+        {syncResult && (
+          <div className="p-4 bg-green-50 border border-green-200 rounded-lg">
+            <h4 className="font-semibold text-green-800 mb-2">Sync Results</h4>
+            <div className="text-sm space-y-1">
+              <p className="text-green-700">✅ Total Customers: {syncResult.totalCustomers}</p>
+              <p className="text-green-700">✅ Updated: {syncResult.updated}</p>
+              <p className="text-green-700">✅ Already in Sync: {syncResult.alreadyInSync}</p>
+              {syncResult.errors > 0 && (
+                <p className="text-red-600">❌ Errors: {syncResult.errors}</p>
+              )}
+            </div>
+
+            {syncResult.updates && syncResult.updates.length > 0 && (
+              <div className="mt-3 max-h-40 overflow-y-auto">
+                <p className="font-semibold text-sm mb-1">Updated Customers:</p>
+                {syncResult.updates.map((update, index) => (
+                  <div key={index} className="text-xs text-gray-600 border-l-2 border-green-400 pl-2 mb-1">
+                    {update.name}: KES {update.oldCredit.toFixed(2)} → KES {update.newCredit.toFixed(2)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 export default function Settings() {
   const { user } = useAuth();
@@ -188,6 +268,9 @@ export default function Settings() {
     });
   };
 
+  // Calculate the number of columns based on user role
+  const tabCols = user?.role === 'admin' ? 5 : 4;
+
   return (
     <div className="space-y-6">
       <div>
@@ -196,7 +279,7 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="business" className="space-y-4">
-        <TabsList className={user?.role === 'admin' ? 'grid w-full grid-cols-4' : 'grid w-full grid-cols-3'}>
+        <TabsList className={`grid w-full grid-cols-${tabCols}`}>
           <TabsTrigger value="business">
             <Building className="mr-2 h-4 w-4" />
             Business
@@ -208,6 +291,10 @@ export default function Settings() {
           <TabsTrigger value="notifications">
             <Bell className="mr-2 h-4 w-4" />
             Notifications
+          </TabsTrigger>
+          <TabsTrigger value="data-management">
+            <Database className="mr-2 h-4 w-4" />
+            Data Management
           </TabsTrigger>
           {user?.role === 'admin' && (
             <TabsTrigger value="users">
@@ -379,234 +466,277 @@ export default function Settings() {
 
                 <div className="space-y-2">
                   <Label htmlFor="confirmPassword">Confirm New Password</Label>
-                  <Input
-                    id="confirmPassword"
-                    type="password"
-                    value={passwordData.confirmPassword}
-                    onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
-                  />
-                </div>
+                    <Input
+                      id="confirmPassword"
+                      type="password"
+                      value={passwordData.confirmPassword}
+                      onChange={(e) => setPasswordData({...passwordData, confirmPassword: e.target.value})}
+                    />
+                  </div>
 
-                <Button type="submit" disabled={loading}>
-                  {loading ? 'Changing...' : 'Change Password'}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Notifications Settings Tab */}
-        <TabsContent value="notifications">
-          <Card>
-            <CardHeader>
-              <CardTitle>Email Notifications</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Enable Email Alerts</p>
-                  <p className="text-sm text-gray-600">Receive email notifications for low stock and daily reports</p>
-                </div>
-                <input
-                  type="checkbox"
-                  className="h-5 w-5"
-                  checked={businessSettings.enableEmailAlerts}
-                  onChange={(e) => setBusinessSettings({...businessSettings, enableEmailAlerts: e.target.checked})}
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="dailyReportTime">Daily Report Time</Label>
-                <Input
-                  id="dailyReportTime"
-                  type="time"
-                  value={businessSettings.dailyReportTime || '18:00'}
-                  onChange={(e) => setBusinessSettings({...businessSettings, dailyReportTime: e.target.value})}
-                />
-                <p className="text-sm text-gray-600">Time when daily reports will be sent</p>
-              </div>
-
-              <div className="space-y-2">
-                <Label>Report Recipients</Label>
-                <div className="flex space-x-2">
-                  <Input
-                    type="email"
-                    placeholder="Enter email address"
-                    value={newRecipient}
-                    onChange={(e) => setNewRecipient(e.target.value)}
-                  />
-                  <Button type="button" onClick={handleAddRecipient}>Add</Button>
-                </div>
-                <div className="mt-3 space-y-2">
-                  {businessSettings.reportRecipients?.map((email, index) => (
-                    <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                      <span>{email}</span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => handleRemoveRecipient(email)}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <Button onClick={handleBusinessSettingsSubmit} disabled={loading}>
-                {loading ? 'Saving...' : 'Save Notification Settings'}
-              </Button>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Users Tab - Admin Only */}
-        {user?.role === 'admin' && (
-          <TabsContent value="users">
-            <Card>
-              <CardHeader>
-                <div className="flex justify-between items-center">
-                  <CardTitle>User Management</CardTitle>
-                  <Button onClick={() => setShowUserDialog(true)}>
-                    <Users className="mr-2 h-4 w-4" />
-                    Add User
+                  <Button type="submit" disabled={loading}>
+                    {loading ? 'Changing...' : 'Change Password'}
                   </Button>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Username</TableHead>
-                      <TableHead>Email</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Last Login</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users.map(u => (
-                      <TableRow key={u._id}>
-                        <TableCell>{u.name}</TableCell>
-                        <TableCell>{u.username}</TableCell>
-                        <TableCell>{u.email}</TableCell>
-                        <TableCell>
-                          <Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>
-                            {u.role}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={u.isActive ? 'success' : 'destructive'}>
-                            {u.isActive ? 'Active' : 'Inactive'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never'}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                </form>
               </CardContent>
             </Card>
           </TabsContent>
-        )}
-      </Tabs>
 
-      {/* Add User Dialog */}
-      <Dialog open={showUserDialog} onOpenChange={setShowUserDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add New User</DialogTitle>
-          </DialogHeader>
-          <form onSubmit={handleUserSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="userName">Full Name *</Label>
-              <Input
-                id="userName"
-                value={userForm.name}
-                onChange={(e) => setUserForm({...userForm, name: e.target.value})}
-                placeholder="John Doe"
-                required
-              />
-            </div>
+          {/* Notifications Settings Tab */}
+          <TabsContent value="notifications">
+            <Card>
+              <CardHeader>
+                <CardTitle>Email Notifications</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">Enable Email Alerts</p>
+                    <p className="text-sm text-gray-600">Receive email notifications for low stock and daily reports</p>
+                  </div>
+                  <input
+                    type="checkbox"
+                    className="h-5 w-5"
+                    checked={businessSettings.enableEmailAlerts}
+                    onChange={(e) => setBusinessSettings({...businessSettings, enableEmailAlerts: e.target.checked})}
+                  />
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="userUsername">Username *</Label>
-              <Input
-                id="userUsername"
-                value={userForm.username}
-                onChange={(e) => setUserForm({...userForm, username: e.target.value})}
-                placeholder="johndoe"
-                required
-              />
-            </div>
+                <div className="space-y-2">
+                  <Label htmlFor="dailyReportTime">Daily Report Time</Label>
+                  <Input
+                    id="dailyReportTime"
+                    type="time"
+                    value={businessSettings.dailyReportTime || '18:00'}
+                    onChange={(e) => setBusinessSettings({...businessSettings, dailyReportTime: e.target.value})}
+                  />
+                  <p className="text-sm text-gray-600">Time when daily reports will be sent</p>
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="userEmail">Email *</Label>
-              <Input
-                id="userEmail"
-                type="email"
-                value={userForm.email}
-                onChange={(e) => setUserForm({...userForm, email: e.target.value})}
-                placeholder="john@example.com"
-                required
-              />
-            </div>
+                <div className="space-y-2">
+                  <Label>Report Recipients</Label>
+                  <div className="flex space-x-2">
+                    <Input
+                      type="email"
+                      placeholder="Enter email address"
+                      value={newRecipient}
+                      onChange={(e) => setNewRecipient(e.target.value)}
+                    />
+                    <Button type="button" onClick={handleAddRecipient}>Add</Button>
+                  </div>
+                  <div className="mt-3 space-y-2">
+                    {businessSettings.reportRecipients?.map((email, index) => (
+                      <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded">
+                        <span>{email}</span>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleRemoveRecipient(email)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="userPassword">Password *</Label>
-              <Input
-                id="userPassword"
-                type="password"
-                value={userForm.password}
-                onChange={(e) => setUserForm({...userForm, password: e.target.value})}
-                placeholder="Minimum 6 characters"
-                required
-              />
-            </div>
+                <Button onClick={handleBusinessSettingsSubmit} disabled={loading}>
+                  {loading ? 'Saving...' : 'Save Notification Settings'}
+                </Button>
+              </CardContent>
+            </Card>
+          </TabsContent>
 
-            <div className="space-y-2">
-              <Label htmlFor="userRole">Role *</Label>
-              <Select value={userForm.role} onValueChange={(value) => setUserForm({...userForm, role: value})}>
-                <SelectTrigger id="userRole">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cashier">Cashier</SelectItem>
-                  <SelectItem value="manager">Manager</SelectItem>
-                  <SelectItem value="admin">Admin</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          {/* Data Management Tab */}
+          <TabsContent value="data-management" className="space-y-4">
+            <Card className="border-orange-200">
+              <CardHeader>
+                <CardTitle className="flex items-center text-orange-700">
+                  <AlertTriangle className="h-5 w-5 mr-2" />
+                  Important Notice
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="p-4 bg-orange-50 rounded-lg">
+                  <p className="text-sm text-orange-700 mb-2">
+                    ⚠️ <strong>Data management operations should be performed with caution.</strong>
+                  </p>
+                  <p className="text-sm text-orange-700">
+                    These tools can modify your business data. Make sure to have a backup before proceeding.
+                    Only administrators should use these features.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
 
-            <div className="flex space-x-2">
-              <Button 
-                type="button" 
-                variant="outline" 
-                className="flex-1"
-                onClick={() => {
-                  setShowUserDialog(false);
-                  setUserForm({
-                    name: '',
-                    username: '',
-                    email: '',
-                    password: '',
-                    role: 'cashier'
-                  });
-                }}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" className="flex-1" disabled={loading}>
-                {loading ? 'Creating...' : 'Create User'}
-              </Button>
-            </div>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
+            <SyncCustomerCredits />
+            
+            {/* Additional data management tools can be added here in the future */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Other Data Tools</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                  <h4 className="font-semibold text-gray-800 mb-2">Coming Soon</h4>
+                  <p className="text-sm text-gray-600 mb-3">
+                    Additional data management tools will be added here as needed.
+                  </p>
+                  <Button disabled variant="outline" className="border-gray-300 text-gray-500">
+                    More tools coming soon...
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Users Tab - Admin Only */}
+          {user?.role === 'admin' && (
+            <TabsContent value="users">
+              <Card>
+                <CardHeader>
+                  <div className="flex justify-between items-center">
+                    <CardTitle>User Management</CardTitle>
+                    <Button onClick={() => setShowUserDialog(true)}>
+                      <Users className="mr-2 h-4 w-4" />
+                      Add User
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Name</TableHead>
+                        <TableHead>Username</TableHead>
+                        <TableHead>Email</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Last Login</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {users.map(u => (
+                        <TableRow key={u._id}>
+                          <TableCell>{u.name}</TableCell>
+                          <TableCell>{u.username}</TableCell>
+                          <TableCell>{u.email}</TableCell>
+                          <TableCell>
+                            <Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>
+                              {u.role}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={u.isActive ? 'success' : 'destructive'}>
+                              {u.isActive ? 'Active' : 'Inactive'}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never'}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          )}
+        </Tabs>
+
+        {/* Add User Dialog */}
+        <Dialog open={showUserDialog} onOpenChange={setShowUserDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Add New User</DialogTitle>
+            </DialogHeader>
+            <form onSubmit={handleUserSubmit} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="userName">Full Name *</Label>
+                <Input
+                  id="userName"
+                  value={userForm.name}
+                  onChange={(e) => setUserForm({...userForm, name: e.target.value})}
+                  placeholder="John Doe"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="userUsername">Username *</Label>
+                <Input
+                  id="userUsername"
+                  value={userForm.username}
+                  onChange={(e) => setUserForm({...userForm, username: e.target.value})}
+                  placeholder="johndoe"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="userEmail">Email *</Label>
+                <Input
+                  id="userEmail"
+                  type="email"
+                  value={userForm.email}
+                  onChange={(e) => setUserForm({...userForm, email: e.target.value})}
+                  placeholder="john@example.com"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="userPassword">Password *</Label>
+                <Input
+                  id="userPassword"
+                  type="password"
+                  value={userForm.password}
+                  onChange={(e) => setUserForm({...userForm, password: e.target.value})}
+                  placeholder="Minimum 6 characters"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="userRole">Role *</Label>
+                <Select value={userForm.role} onValueChange={(value) => setUserForm({...userForm, role: value})}>
+                  <SelectTrigger id="userRole">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="cashier">Cashier</SelectItem>
+                    <SelectItem value="manager">Manager</SelectItem>
+                    <SelectItem value="admin">Admin</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex space-x-2">
+                <Button 
+                  type="button" 
+                  variant="outline" 
+                  className="flex-1"
+                  onClick={() => {
+                    setShowUserDialog(false);
+                    setUserForm({
+                      name: '',
+                      username: '',
+                      email: '',
+                      password: '',
+                      role: 'cashier'
+                    });
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button type="submit" className="flex-1" disabled={loading}>
+                  {loading ? 'Creating...' : 'Create User'}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      </div>
+    );
+  }
