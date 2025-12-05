@@ -1,4 +1,4 @@
-// server/controllers/debt.controller.js
+// server/controllers/debt.controller.js - UPDATED with delete function
 
 import Sale from '../models/Sale.model.js';
 import Customer from '../models/Customer.model.js';
@@ -82,7 +82,6 @@ export const getAllDebts = async (req, res) => {
   }
 };
 
-// NEW: Get today's debt payments
 export const getTodayDebtPayments = async (req, res) => {
   try {
     const today = new Date();
@@ -157,10 +156,12 @@ export const recordDebtPayment = async (req, res) => {
       });
     }
 
-    if (amount > customer.currentCredit) {
+    // FIXED: Use a small epsilon for floating point comparison
+    const epsilon = 0.01;
+    if (amount > customer.currentCredit + epsilon) {
       return res.status(400).json({
         success: false,
-        message: 'Payment amount exceeds customer debt'
+        message: `Payment amount (${amount}) exceeds customer debt (${customer.currentCredit})`
       });
     }
 
@@ -181,6 +182,9 @@ export const recordDebtPayment = async (req, res) => {
       
       sale.amountPaid += paymentForThisSale;
       sale.amountDue -= paymentForThisSale;
+      
+      // Round to avoid floating point issues
+      sale.amountDue = Math.max(0, Math.round(sale.amountDue * 100) / 100);
       
       if (sale.amountDue <= 0) {
         sale.paymentStatus = 'paid';
@@ -210,8 +214,8 @@ export const recordDebtPayment = async (req, res) => {
       notes: `Debt payment for ${customer.name}`
     }], { session });
 
-    // Update customer credit
-    customer.currentCredit = Math.max(0, customer.currentCredit - amount);
+    // Update customer credit - round to avoid floating point issues
+    customer.currentCredit = Math.max(0, Math.round((customer.currentCredit - amount) * 100) / 100);
     await customer.save({ session });
 
     await session.commitTransaction();
@@ -223,6 +227,62 @@ export const recordDebtPayment = async (req, res) => {
         transaction: paymentTransaction[0],
         updatedSales: updatedSales.length,
         remainingDebt: customer.currentCredit
+      }
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  } finally {
+    session.endSession();
+  }
+};
+
+// NEW: Delete debt function
+export const deleteDebt = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const customerId = req.params.customerId;
+
+    const customer = await Customer.findById(customerId).session(session);
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Customer not found'
+      });
+    }
+
+    // Find all unpaid/partial sales for this customer
+    const unpaidSales = await Sale.find({
+      customer: customerId,
+      amountDue: { $gt: 0 }
+    }).session(session);
+
+    // Update all unpaid sales to paid status
+    for (const sale of unpaidSales) {
+      sale.amountPaid = sale.total;
+      sale.amountDue = 0;
+      sale.paymentStatus = 'paid';
+      await sale.save({ session });
+    }
+
+    // Clear customer credit
+    customer.currentCredit = 0;
+    await customer.save({ session });
+
+    await session.commitTransaction();
+
+    res.json({
+      success: true,
+      message: 'Debt cleared successfully',
+      data: {
+        customerId: customer._id,
+        customerName: customer.name,
+        salesCleared: unpaidSales.length
       }
     });
   } catch (error) {
