@@ -1,4 +1,4 @@
-// server/controllers/debt.controller.js - UPDATED with delete function
+// server/controllers/debt.controller.js - COMPLETELY FIXED
 
 import Sale from '../models/Sale.model.js';
 import Customer from '../models/Customer.model.js';
@@ -12,7 +12,8 @@ export const getAllDebts = async (req, res) => {
     // Build match query for sales
     let matchQuery = {
       paymentStatus: { $in: ['unpaid', 'partial'] },
-      amountDue: { $gt: 0 }
+      amountDue: { $gt: 0 },
+      customer: { $ne: null } // IMPORTANT: Only include sales with customers
     };
 
     if (startDate || endDate) {
@@ -49,7 +50,7 @@ export const getAllDebts = async (req, res) => {
       },
       {
         $project: {
-          customerId: '$_id',
+          customerId: '$_id', // This is the ACTUAL customer ObjectId
           customerName: 1,
           customerPhone: '$customerInfo.phone',
           totalDebt: 1,
@@ -61,20 +62,26 @@ export const getAllDebts = async (req, res) => {
       { $sort: { totalDebt: -1 } }
     ]);
 
+    // Filter out any debts without customer IDs
+    const validDebts = debts.filter(debt => debt.customerId);
+
     // Apply search filter if provided
-    let filteredDebts = debts;
+    let filteredDebts = validDebts;
     if (search) {
-      filteredDebts = debts.filter(debt =>
+      filteredDebts = validDebts.filter(debt =>
         debt.customerName?.toLowerCase().includes(search.toLowerCase()) ||
         debt.customerPhone?.includes(search)
       );
     }
+
+    console.log(`Found ${filteredDebts.length} debts with valid customer IDs`);
 
     res.json({
       success: true,
       data: filteredDebts
     });
   } catch (error) {
+    console.error('Error in getAllDebts:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -127,6 +134,7 @@ export const getTodayDebtPayments = async (req, res) => {
       data: result
     });
   } catch (error) {
+    console.error('Error in getTodayDebtPayments:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -141,28 +149,33 @@ export const recordDebtPayment = async (req, res) => {
   try {
     const { customerId, amount, paymentMethod } = req.body;
 
-    if (!customerId || !amount || amount <= 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid payment data'
-      });
+    console.log('Recording payment:', { customerId, amount, paymentMethod });
+
+    // Validate inputs
+    if (!customerId) {
+      throw new Error('Customer ID is required');
+    }
+
+    if (!amount || amount <= 0) {
+      throw new Error('Invalid payment amount');
+    }
+
+    // Validate customer ID format
+    if (!mongoose.Types.ObjectId.isValid(customerId)) {
+      throw new Error('Invalid customer ID format');
     }
 
     const customer = await Customer.findById(customerId).session(session);
     if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: 'Customer not found'
-      });
+      throw new Error('Customer not found');
     }
 
-    // FIXED: Use a small epsilon for floating point comparison
+    console.log('Customer found:', customer.name, 'Current credit:', customer.currentCredit);
+
+    // Use a small epsilon for floating point comparison
     const epsilon = 0.01;
     if (amount > customer.currentCredit + epsilon) {
-      return res.status(400).json({
-        success: false,
-        message: `Payment amount (${amount}) exceeds customer debt (${customer.currentCredit})`
-      });
+      throw new Error(`Payment amount (${amount.toFixed(2)}) exceeds customer debt (${customer.currentCredit.toFixed(2)})`);
     }
 
     // Get all unpaid/partial sales for this customer, sorted by date (oldest first)
@@ -170,6 +183,8 @@ export const recordDebtPayment = async (req, res) => {
       customer: customerId,
       amountDue: { $gt: 0 }
     }).sort({ saleDate: 1 }).session(session);
+
+    console.log(`Found ${unpaidSales.length} unpaid sales for customer`);
 
     let remainingPayment = amount;
     const updatedSales = [];
@@ -215,10 +230,15 @@ export const recordDebtPayment = async (req, res) => {
     }], { session });
 
     // Update customer credit - round to avoid floating point issues
-    customer.currentCredit = Math.max(0, Math.round((customer.currentCredit - amount) * 100) / 100);
+    const newCredit = Math.max(0, Math.round((customer.currentCredit - amount) * 100) / 100);
+    console.log('Updating customer credit from', customer.currentCredit, 'to', newCredit);
+    
+    customer.currentCredit = newCredit;
     await customer.save({ session });
 
     await session.commitTransaction();
+
+    console.log('Payment recorded successfully');
 
     res.json({
       success: true,
@@ -231,7 +251,8 @@ export const recordDebtPayment = async (req, res) => {
     });
   } catch (error) {
     await session.abortTransaction();
-    res.status(500).json({
+    console.error('Error in recordDebtPayment:', error);
+    res.status(400).json({
       success: false,
       message: error.message
     });
@@ -240,7 +261,6 @@ export const recordDebtPayment = async (req, res) => {
   }
 };
 
-// NEW: Delete debt function
 export const deleteDebt = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -248,19 +268,27 @@ export const deleteDebt = async (req, res) => {
   try {
     const customerId = req.params.customerId;
 
+    console.log('Deleting debt for customer:', customerId);
+
+    // Validate customer ID
+    if (!customerId || !mongoose.Types.ObjectId.isValid(customerId)) {
+      throw new Error('Invalid customer ID');
+    }
+
     const customer = await Customer.findById(customerId).session(session);
     if (!customer) {
-      return res.status(404).json({
-        success: false,
-        message: 'Customer not found'
-      });
+      throw new Error('Customer not found');
     }
+
+    console.log('Clearing debt for customer:', customer.name);
 
     // Find all unpaid/partial sales for this customer
     const unpaidSales = await Sale.find({
       customer: customerId,
       amountDue: { $gt: 0 }
     }).session(session);
+
+    console.log(`Found ${unpaidSales.length} unpaid sales to clear`);
 
     // Update all unpaid sales to paid status
     for (const sale of unpaidSales) {
@@ -271,10 +299,13 @@ export const deleteDebt = async (req, res) => {
     }
 
     // Clear customer credit
+    const previousCredit = customer.currentCredit;
     customer.currentCredit = 0;
     await customer.save({ session });
 
     await session.commitTransaction();
+
+    console.log(`Successfully cleared ${formatCurrency(previousCredit)} debt for ${customer.name}`);
 
     res.json({
       success: true,
@@ -282,12 +313,14 @@ export const deleteDebt = async (req, res) => {
       data: {
         customerId: customer._id,
         customerName: customer.name,
-        salesCleared: unpaidSales.length
+        salesCleared: unpaidSales.length,
+        amountCleared: previousCredit
       }
     });
   } catch (error) {
     await session.abortTransaction();
-    res.status(500).json({
+    console.error('Error in deleteDebt:', error);
+    res.status(400).json({
       success: false,
       message: error.message
     });
@@ -302,7 +335,8 @@ export const generateDebtReport = async (req, res) => {
 
     let matchQuery = {
       paymentStatus: { $in: ['unpaid', 'partial'] },
-      amountDue: { $gt: 0 }
+      amountDue: { $gt: 0 },
+      customer: { $ne: null }
     };
 
     if (startDate || endDate) {
@@ -365,9 +399,19 @@ export const generateDebtReport = async (req, res) => {
       }
     });
   } catch (error) {
+    console.error('Error in generateDebtReport:', error);
     res.status(500).json({
       success: false,
       message: error.message
     });
   }
 };
+
+// Helper function for formatting currency (for logging)
+function formatCurrency(amount) {
+  return new Intl.NumberFormat('en-KE', {
+    style: 'currency',
+    currency: 'KES',
+    minimumFractionDigits: 0
+  }).format(amount);
+}
