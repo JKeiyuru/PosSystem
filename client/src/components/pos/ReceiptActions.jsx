@@ -60,16 +60,18 @@ export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose
     setShowReceiptView(true);
   };
 
-  const getPaymentMethodDisplay = (method) => {
-    const methods = {
-      'cash': 'Cash',
-      'mpesa_paybill': 'M-Pesa (Paybill)',
-      'mpesa_beth': 'M-Pesa (Beth)',
-      'mpesa_martin': 'M-Pesa (Martin)',
-      'credit': 'Credit'
-    };
-    return methods[method] || method;
+const getPaymentMethodDisplay = (method) => {
+  const methods = {
+    'cash': 'Cash',
+    'mpesa_paybill': 'M-Pesa (Paybill)',
+    'mpesa_till': 'M-Pesa (Till)',
+    'gdc_paybill': 'GDC Paybill',
+    'mpesa_beth': 'M-Pesa (Beth)',
+    'mpesa_martin': 'M-Pesa (Martin)',
+    'credit': 'Credit'
   };
+  return methods[method] || method;
+};
 
   return (
     <>
