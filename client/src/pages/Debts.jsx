@@ -1,4 +1,4 @@
-// client/src/pages/Debts.jsx - UPDATED with Cashier Role Restrictions
+// client/src/pages/Debts.jsx - FIXED: Debt validation, added delete, new payment methods
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -22,14 +22,17 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Search, DollarSign, FileText, Download } from 'lucide-react';
+import { Search, DollarSign, FileText, Download, Trash2 } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import { debtService } from '../services/debt.service';
 import { useAuth } from '../hooks/useAuth';
+import { useLocation } from 'react-router-dom';
 
 export default function Debts() {
   const { user } = useAuth();
+  const location = useLocation();
   const isCashier = user?.role === 'cashier';
+  const isAdmin = user?.role === 'admin';
   
   const [debts, setDebts] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -47,7 +50,12 @@ export default function Debts() {
 
   useEffect(() => {
     fetchDebts();
-  }, [searchQuery, dateRange]);
+    
+    // Handle navigation from Customers page
+    if (location.state?.customerId) {
+      setSearchQuery(location.state.customerName || '');
+    }
+  }, [searchQuery, dateRange, location.state]);
 
   const fetchDebts = async () => {
     try {
@@ -66,13 +74,16 @@ export default function Debts() {
   };
 
   const handlePayDebt = async () => {
-    if (!paymentAmount || parseFloat(paymentAmount) <= 0) {
+    const amount = parseFloat(paymentAmount);
+    
+    if (!amount || amount <= 0) {
       alert('Please enter a valid payment amount');
       return;
     }
 
-    if (parseFloat(paymentAmount) > selectedCustomer.totalDebt) {
-      alert('Payment amount cannot exceed total debt');
+    // FIXED: Compare with the actual total debt from the selected customer object
+    if (amount > selectedCustomer.totalDebt) {
+      alert(`Payment amount (${formatCurrency(amount)}) cannot exceed total debt (${formatCurrency(selectedCustomer.totalDebt)})`);
       return;
     }
 
@@ -80,7 +91,7 @@ export default function Debts() {
       setLoading(true);
       await debtService.recordPayment({
         customerId: selectedCustomer.customerId,
-        amount: parseFloat(paymentAmount),
+        amount,
         paymentMethod
       });
 
@@ -94,6 +105,24 @@ export default function Debts() {
       alert('Error recording payment: ' + (error.response?.data?.message || error.message));
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteDebt = async (debt) => {
+    if (!isAdmin) {
+      alert('Only administrators can delete debts');
+      return;
+    }
+
+    if (window.confirm(`Are you sure you want to delete the debt for ${debt.customerName}? This will clear ${formatCurrency(debt.totalDebt)} from their account. This action cannot be undone.`)) {
+      try {
+        await debtService.deleteDebt(debt.customerId);
+        alert('Debt deleted successfully');
+        fetchDebts();
+      } catch (error) {
+        console.error('Error deleting debt:', error);
+        alert('Error deleting debt: ' + (error.response?.data?.message || error.message));
+      }
     }
   };
 
@@ -119,7 +148,6 @@ export default function Debts() {
   };
 
   const downloadReport = () => {
-    // TODO: Implementation for downloading report as PDF/Excel
     alert('Download functionality will be implemented');
   };
 
@@ -260,16 +288,28 @@ export default function Debts() {
                       </Badge>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          setSelectedCustomer(debt);
-                          setIsPaymentDialogOpen(true);
-                        }}
-                      >
-                        <DollarSign className="h-4 w-4 mr-1" />
-                        Pay Debt
-                      </Button>
+                      <div className="flex space-x-2">
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            setSelectedCustomer(debt);
+                            setIsPaymentDialogOpen(true);
+                          }}
+                        >
+                          <DollarSign className="h-4 w-4 mr-1" />
+                          Pay Debt
+                        </Button>
+                        {isAdmin && (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDeleteDebt(debt)}
+                            title="Delete Debt (Admin Only)"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -332,6 +372,8 @@ export default function Debts() {
                   <SelectContent>
                     <SelectItem value="cash">Cash</SelectItem>
                     <SelectItem value="mpesa_paybill">M-Pesa (Paybill)</SelectItem>
+                    <SelectItem value="mpesa_till">M-Pesa (Till)</SelectItem>
+                    <SelectItem value="gdc_paybill">GDC Paybill</SelectItem>
                     <SelectItem value="mpesa_beth">M-Pesa (Beth)</SelectItem>
                     <SelectItem value="mpesa_martin">M-Pesa (Martin)</SelectItem>
                   </SelectContent>
