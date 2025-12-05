@@ -202,16 +202,18 @@ export default function Sales() {
     documentTitle: `Receipt-${selectedSale?.saleNumber}`,
   });
 
-  const getPaymentMethodBadge = (method) => {
-    const methods = {
-      cash: { label: 'Cash', color: 'default' },
-      mpesa_paybill: { label: 'M-Pesa (Paybill)', color: 'success' },
-      mpesa_beth: { label: 'M-Pesa (Beth)', color: 'success' },
-      mpesa_martin: { label: 'M-Pesa (Martin)', color: 'success' },
-      credit: { label: 'Credit', color: 'warning' }
-    };
-    return <Badge variant={methods[method]?.color || 'default'}>{methods[method]?.label || method}</Badge>;
+ const getPaymentMethodBadge = (method) => {
+  const methods = {
+    cash: { label: 'Cash', color: 'default' },
+    mpesa_paybill: { label: 'M-Pesa (Paybill)', color: 'success' },
+    mpesa_till: { label: 'M-Pesa (Till)', color: 'success' },
+    gdc_paybill: { label: 'GDC Paybill', color: 'success' },
+    mpesa_beth: { label: 'M-Pesa (Beth)', color: 'success' },
+    mpesa_martin: { label: 'M-Pesa (Martin)', color: 'success' },
+    credit: { label: 'Credit', color: 'warning' }
   };
+  return <Badge variant={methods[method]?.color || 'default'}>{methods[method]?.label || method}</Badge>;
+};
 
   const getPaymentStatusBadge = (status) => {
     const statuses = {
