@@ -1,4 +1,4 @@
-// client/src/pages/Debts.jsx - FIXED: Debt validation, added delete, new payment methods
+// client/src/pages/Debts.jsx - COMPLETELY FIXED with proper ID handling
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -22,7 +22,7 @@ import {
 } from '../components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
-import { Search, DollarSign, FileText, Download, Trash2 } from 'lucide-react';
+import { Search, DollarSign, FileText, Download, Trash2, AlertCircle } from 'lucide-react';
 import { formatCurrency, formatDateTime } from '../lib/utils';
 import { debtService } from '../services/debt.service';
 import { useAuth } from '../hooks/useAuth';
@@ -66,6 +66,7 @@ export default function Debts() {
       };
       
       const response = await debtService.getAll(params);
+      console.log('Fetched debts:', response.data); // Debug log
       setDebts(response.data);
     } catch (error) {
       console.error('Error fetching debts:', error);
@@ -81,7 +82,14 @@ export default function Debts() {
       return;
     }
 
-    // FIXED: Compare with the actual total debt from the selected customer object
+    // Check if customer ID exists
+    if (!selectedCustomer.customerId) {
+      alert('Error: Customer ID is missing. Please refresh the page and try again.');
+      console.error('Missing customer ID:', selectedCustomer);
+      return;
+    }
+
+    // Compare with the actual total debt from the selected customer object
     if (amount > selectedCustomer.totalDebt) {
       alert(`Payment amount (${formatCurrency(amount)}) cannot exceed total debt (${formatCurrency(selectedCustomer.totalDebt)})`);
       return;
@@ -89,6 +97,9 @@ export default function Debts() {
 
     try {
       setLoading(true);
+      
+      console.log('Recording payment for customer:', selectedCustomer.customerId); // Debug log
+      
       await debtService.recordPayment({
         customerId: selectedCustomer.customerId,
         amount,
@@ -114,8 +125,16 @@ export default function Debts() {
       return;
     }
 
+    // Check if customer ID exists
+    if (!debt.customerId) {
+      alert('Error: Customer ID is missing. Cannot delete debt.');
+      console.error('Missing customer ID in debt:', debt);
+      return;
+    }
+
     if (window.confirm(`Are you sure you want to delete the debt for ${debt.customerName}? This will clear ${formatCurrency(debt.totalDebt)} from their account. This action cannot be undone.`)) {
       try {
+        console.log('Deleting debt for customer:', debt.customerId); // Debug log
         await debtService.deleteDebt(debt.customerId);
         alert('Debt deleted successfully');
         fetchDebts();
@@ -271,20 +290,27 @@ export default function Debts() {
               </TableHeader>
               <TableBody>
                 {debts.map((debt) => (
-                  <TableRow key={debt.customerId}>
-                    <TableCell className="font-medium">{debt.customerName}</TableCell>
-                    <TableCell>{debt.customerPhone}</TableCell>
+                  <TableRow key={debt.customerId || debt._id}>
+                    <TableCell className="font-medium">
+                      {debt.customerName}
+                      {!debt.customerId && (
+                        <span className="ml-2 text-xs text-red-500" title="Customer ID missing">
+                          <AlertCircle className="h-3 w-3 inline" />
+                        </span>
+                      )}
+                    </TableCell>
+                    <TableCell>{debt.customerPhone || '-'}</TableCell>
                     <TableCell>
                       <span className="text-red-600 font-semibold">
                         {formatCurrency(debt.totalDebt)}
                       </span>
                     </TableCell>
                     <TableCell>{debt.numberOfSales}</TableCell>
-                    <TableCell>{formatDateTime(debt.oldestDebtDate)}</TableCell>
-                    <TableCell>{formatCurrency(debt.creditLimit)}</TableCell>
+                    <TableCell>{debt.oldestDebtDate ? formatDateTime(debt.oldestDebtDate) : '-'}</TableCell>
+                    <TableCell>{formatCurrency(debt.creditLimit || 0)}</TableCell>
                     <TableCell>
-                      <Badge variant={debt.totalDebt > debt.creditLimit ? 'destructive' : 'warning'}>
-                        {debt.totalDebt > debt.creditLimit ? 'Over Limit' : 'Within Limit'}
+                      <Badge variant={debt.totalDebt > (debt.creditLimit || 0) ? 'destructive' : 'warning'}>
+                        {debt.totalDebt > (debt.creditLimit || 0) ? 'Over Limit' : 'Within Limit'}
                       </Badge>
                     </TableCell>
                     <TableCell>
@@ -292,9 +318,11 @@ export default function Debts() {
                         <Button
                           size="sm"
                           onClick={() => {
+                            console.log('Selected debt for payment:', debt); // Debug log
                             setSelectedCustomer(debt);
                             setIsPaymentDialogOpen(true);
                           }}
+                          disabled={!debt.customerId}
                         >
                           <DollarSign className="h-4 w-4 mr-1" />
                           Pay Debt
@@ -305,6 +333,7 @@ export default function Debts() {
                             variant="destructive"
                             onClick={() => handleDeleteDebt(debt)}
                             title="Delete Debt (Admin Only)"
+                            disabled={!debt.customerId}
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -341,7 +370,7 @@ export default function Debts() {
                 </div>
                 <div className="flex justify-between mb-2">
                   <span className="font-medium">Phone:</span>
-                  <span>{selectedCustomer.customerPhone}</span>
+                  <span>{selectedCustomer.customerPhone || '-'}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="font-medium">Total Debt:</span>
@@ -349,6 +378,13 @@ export default function Debts() {
                     {formatCurrency(selectedCustomer.totalDebt)}
                   </span>
                 </div>
+                {!selectedCustomer.customerId && (
+                  <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded">
+                    <p className="text-xs text-red-700">
+                      ⚠️ Warning: Customer ID is missing. Payment cannot be processed.
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -360,12 +396,17 @@ export default function Debts() {
                   placeholder="Enter payment amount"
                   value={paymentAmount}
                   onChange={(e) => setPaymentAmount(e.target.value)}
+                  disabled={!selectedCustomer.customerId}
                 />
               </div>
 
               <div className="space-y-2">
                 <Label>Payment Method</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
+                <Select 
+                  value={paymentMethod} 
+                  onValueChange={setPaymentMethod}
+                  disabled={!selectedCustomer.customerId}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -380,7 +421,7 @@ export default function Debts() {
                 </Select>
               </div>
 
-              {paymentAmount && (
+              {paymentAmount && selectedCustomer.customerId && (
                 <div className="p-3 bg-blue-50 rounded-lg">
                   <div className="flex justify-between text-sm mb-1">
                     <span>Payment Amount:</span>
@@ -407,7 +448,10 @@ export default function Debts() {
                 <Button variant="outline" onClick={() => setIsPaymentDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button onClick={handlePayDebt} disabled={loading}>
+                <Button 
+                  onClick={handlePayDebt} 
+                  disabled={loading || !selectedCustomer.customerId}
+                >
                   {loading ? 'Processing...' : 'Record Payment'}
                 </Button>
               </DialogFooter>
