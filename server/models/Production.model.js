@@ -1,4 +1,4 @@
-// server/models/Production.model.js - ENHANCED
+// server/models/Production.model.js - ENHANCED with Substitution Tracking
 
 import mongoose from 'mongoose';
 
@@ -15,12 +15,22 @@ const productionIngredientSchema = new mongoose.Schema({
     min: 0
   },
   unit: String,
-  baseUnitQuantity: Number, // Quantity in base units
+  baseUnitQuantity: Number,
   unitCost: Number,
   usedBuyingPrice: {
     type: Boolean,
     default: false
-  }
+  },
+  // NEW: Track if this ingredient was substituted
+  wasSubstituted: {
+    type: Boolean,
+    default: false
+  },
+  originalProduct: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Product'
+  },
+  originalProductName: String
 });
 
 const productionSchema = new mongoose.Schema({
@@ -33,7 +43,6 @@ const productionSchema = new mongoose.Schema({
     enum: ['standard', 'custom'],
     default: 'standard'
   },
-  // Formula reference if using saved formula
   formula: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'ProductionFormula'
@@ -83,7 +92,6 @@ const productionSchema = new mongoose.Schema({
   },
   costPerUnit: Number,
   
-  // If sold immediately (for custom combinations)
   soldImmediately: {
     type: Boolean,
     default: false
@@ -91,6 +99,12 @@ const productionSchema = new mongoose.Schema({
   saleReference: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Sale'
+  },
+  
+  // NEW: Track if substitutions were made
+  hasSubstitutions: {
+    type: Boolean,
+    default: false
   },
   
   performedBy: {
@@ -130,7 +144,17 @@ productionSchema.pre('validate', async function(next) {
       this.productionNumber = `PROD-${Date.now()}`;
     }
   }
+  
+  // Check if any ingredients were substituted
+  if (this.ingredients && this.ingredients.length > 0) {
+    this.hasSubstitutions = this.ingredients.some(ing => ing.wasSubstituted);
+  }
+  
   next();
 });
+
+// Add index for searching by formula
+productionSchema.index({ formula: 1, createdAt: -1 });
+productionSchema.index({ hasSubstitutions: 1 });
 
 export default mongoose.model('Production', productionSchema);

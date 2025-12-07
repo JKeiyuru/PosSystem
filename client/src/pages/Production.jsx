@@ -22,7 +22,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { Search, Plus, Trash2, Play, Square, Save, Zap, Package, DollarSign, ShoppingCart, AlertCircle } from 'lucide-react';
+import { Search, Plus, Trash2, Play, Square, Save, Zap, Package, DollarSign, ShoppingCart, AlertCircle, RefreshCw, ArrowRightLeft } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { productionService } from '../services/production.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
@@ -70,6 +70,13 @@ export default function Production() {
   
   // FIX: Add activeTab state that was missing
   const [activeTab, setActiveTab] = useState('manual');
+  
+  // New substitution state variables
+  const [formulaIngredients, setFormulaIngredients] = useState([]); // Working copy
+  const [showSubstitutionDialog, setShowSubstitutionDialog] = useState(false);
+  const [substitutionIndex, setSubstitutionIndex] = useState(null);
+  const [substitutionSearch, setSubstitutionSearch] = useState('');
+  const [substitutionProducts, setSubstitutionProducts] = useState([]);
   
   const receiptRef = useRef();
 
@@ -153,6 +160,18 @@ export default function Production() {
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
 
+  // useEffect for substitution search
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (substitutionSearch) {
+        fetchSubstitutionProducts();
+      } else {
+        setSubstitutionProducts(allProducts);
+      }
+    }, 300);
+    return () => clearTimeout(delayDebounceFn);
+  }, [substitutionSearch, allProducts]);
+
   const fetchProducts = async () => {
     try {
       const response = await productService.getAll({ search: searchQuery });
@@ -171,6 +190,15 @@ export default function Production() {
       }
     } catch (error) {
       console.error('Error fetching all products:', error);
+    }
+  };
+
+  const fetchSubstitutionProducts = async () => {
+    try {
+      const response = await productService.getAll({ search: substitutionSearch });
+      setSubstitutionProducts(response.data);
+    } catch (error) {
+      console.error('Error fetching substitution products:', error);
     }
   };
 
@@ -523,11 +551,20 @@ export default function Production() {
     }
   };
 
+  // Updated loadFormula function with substitution tracking
   const loadFormula = (formula) => {
     setSelectedFormula(formula);
-    setShowExecuteFormulaDialog(true);
     
-    // Reset scale and custom output when loading new formula
+    // Create working copy with substitution tracking
+    const workingIngredients = formula.ingredients.map(ing => ({
+      ...ing,
+      originalProduct: ing.product,
+      originalProductName: ing.productName,
+      isSubstituted: false
+    }));
+    
+    setFormulaIngredients(workingIngredients);
+    setShowExecuteFormulaDialog(true);
     setFormulaScale('full');
     setCustomOutput({ bags: '', kgs: '' });
     
@@ -538,6 +575,80 @@ export default function Production() {
       setCustomerName(formula.customerName || '');
       setCustomOutputName(formula.customOutputName || '');
       setSellingPrice('');
+    }
+  };
+
+  // Substitution functions
+  const openSubstitutionDialog = (index) => {
+    setSubstitutionIndex(index);
+    setSubstitutionSearch('');
+    setSubstitutionProducts(allProducts);
+    setShowSubstitutionDialog(true);
+  };
+
+  const substituteIngredient = async (newProduct) => {
+    if (substitutionIndex === null) return;
+    
+    try {
+      const response = await productService.getById(newProduct._id);
+      const fullProduct = response.data;
+      
+      const updatedIngredients = [...formulaIngredients];
+      const originalIng = updatedIngredients[substitutionIndex];
+      
+      updatedIngredients[substitutionIndex] = {
+        ...originalIng,
+        product: fullProduct._id,
+        productName: fullProduct.name,
+        unit: fullProduct.baseUnit,
+        isSubstituted: true,
+        originalProduct: originalIng.originalProduct,
+        originalProductName: originalIng.originalProductName,
+        availableQuantity: fullProduct.quantity,
+        baseUnit: fullProduct.baseUnit,
+        sellingPrice: fullProduct.sellingPrice,
+        buyingPrice: fullProduct.buyingPrice,
+        hasMultipleUnits: fullProduct.hasMultipleUnits,
+        subUnits: fullProduct.subUnits || []
+      };
+      
+      setFormulaIngredients(updatedIngredients);
+      setShowSubstitutionDialog(false);
+      setSubstitutionIndex(null);
+      
+      alert(`Substituted: ${originalIng.originalProductName} → ${fullProduct.name}`);
+    } catch (error) {
+      console.error('Error substituting ingredient:', error);
+      alert('Error loading product details');
+    }
+  };
+
+  const resetIngredientToOriginal = async (index) => {
+    try {
+      const ingredient = formulaIngredients[index];
+      const response = await productService.getById(ingredient.originalProduct);
+      const originalProduct = response.data;
+      
+      const updatedIngredients = [...formulaIngredients];
+      updatedIngredients[index] = {
+        ...ingredient,
+        product: originalProduct._id,
+        productName: originalProduct.name,
+        unit: originalProduct.baseUnit,
+        isSubstituted: false,
+        availableQuantity: originalProduct.quantity,
+        baseUnit: originalProduct.baseUnit,
+        sellingPrice: originalProduct.sellingPrice,
+        buyingPrice: originalProduct.buyingPrice,
+        hasMultipleUnits: originalProduct.hasMultipleUnits,
+        subUnits: originalProduct.subUnits || []
+      };
+      
+      setFormulaIngredients(updatedIngredients);
+      alert(`Reset to original: ${ingredient.originalProductName}`);
+    } catch (error) {
+      console.error('Error resetting ingredient:', error);
+      alert('Error loading original product details');
     }
   };
 
@@ -572,19 +683,30 @@ export default function Production() {
     return formulaScale === 'full' ? 1 : formulaScale === 'half' ? 0.5 : 0.25;
   };
 
+  // Updated executeFormulaProduction to use formulaIngredients
   const executeFormulaProduction = async (saleData = null) => {
     try {
       setLoading(true);
-
       const scaleMultiplier = getScaleMultiplier();
-      const scaledIngredients = selectedFormula.ingredients.map(ing => ({
-        ...ing,
-        quantity: ing.quantity * scaleMultiplier
+      
+      // Use working ingredients (with substitutions)
+      const scaledIngredients = formulaIngredients.map(ing => ({
+        product: ing.product,
+        quantity: ing.quantity * scaleMultiplier,
+        unit: ing.unit,
+        useBuyingPrice: ing.useBuyingPrice
       }));
 
       const payload = {
         scale: formulaScale,
-        scaledIngredients
+        scaledIngredients,
+        hasSubstitutions: formulaIngredients.some(ing => ing.isSubstituted),
+        substitutionDetails: formulaIngredients
+          .filter(ing => ing.isSubstituted)
+          .map(ing => ({
+            original: ing.originalProductName,
+            substituted: ing.productName
+          }))
       };
 
       if (selectedFormula.type === 'standard') {
@@ -618,6 +740,7 @@ export default function Production() {
       setSplitPayments([{ method: 'cash', amount: '' }]);
       setFormulaScale('full');
       setCustomOutput({ bags: '', kgs: '' });
+      setFormulaIngredients([]);
       
       fetchProducts();
       fetchAllProducts();
@@ -687,6 +810,7 @@ export default function Production() {
     setSplitPayments([{ method: 'cash', amount: '' }]);
     setFormulaScale('full');
     setCustomOutput({ bags: '', kgs: '' });
+    setFormulaIngredients([]);
   };
 
   const getCurrentPrice = (ing) => {
@@ -1293,13 +1417,18 @@ export default function Production() {
         </DialogContent>
       </Dialog>
 
-      {/* Enhanced Execute Formula Dialog with Scale Selection */}
+      {/* Enhanced Execute Formula Dialog with Scale Selection and Substitution */}
       <Dialog open={showExecuteFormulaDialog} onOpenChange={setShowExecuteFormulaDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Execute Formula: {selectedFormula?.name}</DialogTitle>
+            <DialogTitle className="flex items-center gap-2">
+              <Play className="h-5 w-5" />
+              Execute Formula: {selectedFormula?.name}
+            </DialogTitle>
           </DialogHeader>
+          
           <div className="space-y-4 py-4">
+            {/* Formula Info */}
             <div className="p-4 bg-gray-50 rounded-lg">
               <div className="flex justify-between mb-2">
                 <h4 className="font-semibold">Type:</h4>
@@ -1319,17 +1448,79 @@ export default function Production() {
                   </div>
                 </>
               )}
-              <h4 className="font-semibold mt-3 mb-2">Ingredients:</h4>
-              {selectedFormula?.ingredients.map((ing, idx) => (
-                <div key={idx} className="text-sm flex justify-between">
-                  <span>• {ing.productName}: {ing.quantity} {ing.unit}</span>
-                  <span className="text-gray-600">
-                    {ing.useBuyingPrice ? '(Buying Price)' : '(Selling Price)'}
-                  </span>
-                </div>
-              ))}
             </div>
 
+            {/* Ingredients with Substitution */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-base font-semibold">Ingredients</Label>
+                {formulaIngredients.some(ing => ing.isSubstituted) && (
+                  <span className="text-xs text-amber-600 font-medium">
+                    ⚠️ Contains substitutions
+                  </span>
+                )}
+              </div>
+              
+              <div className="border rounded-lg divide-y">
+                {formulaIngredients.map((ing, index) => (
+                  <div key={index} className={`p-3 ${ing.isSubstituted ? 'bg-amber-50' : 'bg-white'}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          {ing.isSubstituted && (
+                            <ArrowRightLeft className="h-4 w-4 text-amber-600 flex-shrink-0" />
+                          )}
+                          <p className="font-medium truncate">{ing.productName}</p>
+                          {ing.isSubstituted && (
+                            <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">
+                              Substituted
+                            </span>
+                          )}
+                        </div>
+                        
+                        <div className="text-sm text-gray-600 space-y-1">
+                          <p>Quantity: {ing.quantity} {ing.unit}</p>
+                          {ing.isSubstituted && (
+                            <p className="text-amber-700 text-xs">
+                              Original: {ing.originalProductName}
+                            </p>
+                          )}
+                          <p className="text-xs">
+                            Available: {ing.availableQuantity} {ing.baseUnit}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-col gap-1">
+                        {!ing.isSubstituted ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => openSubstitutionDialog(index)}
+                            className="whitespace-nowrap"
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Substitute
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => resetIngredientToOriginal(index)}
+                            className="whitespace-nowrap"
+                          >
+                            <RefreshCw className="h-3 w-3 mr-1" />
+                            Reset
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Scale Selection */}
             <div className="space-y-2">
               <Label>Formula Scale</Label>
               <Select value={formulaScale} onValueChange={setFormulaScale}>
@@ -1347,34 +1538,39 @@ export default function Production() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                Ingredient quantities will be automatically adjusted based on the selected scale.
+                {formulaIngredients.some(ing => ing.isSubstituted) ? (
+                  <span className="text-amber-700">
+                    ⚠️ You've made substitutions. The original formula will remain unchanged.
+                  </span>
+                ) : (
+                  <span>
+                    Ingredient quantities will be scaled automatically. Stock will be checked before execution.
+                  </span>
+                )}
               </AlertDescription>
             </Alert>
 
+            {/* Rest of the dialog content (output fields, etc.) */}
             {selectedFormula?.type === 'standard' ? (
               <>
                 <div className="space-y-2">
                   <Label>Custom Output (Optional - Override scaled default)</Label>
                   <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Input
-                        type="number"
-                        placeholder="Bags"
-                        value={customOutput.bags}
-                        onChange={(e) => setCustomOutput({...customOutput, bags: e.target.value})}
-                      />
-                    </div>
-                    <div>
-                      <Input
-                        type="number"
-                        placeholder="Kgs"
-                        value={customOutput.kgs}
-                        onChange={(e) => setCustomOutput({...customOutput, kgs: e.target.value})}
-                      />
-                    </div>
+                    <Input
+                      type="number"
+                      placeholder="Bags"
+                      value={customOutput.bags}
+                      onChange={(e) => setCustomOutput({...customOutput, bags: e.target.value})}
+                    />
+                    <Input
+                      type="number"
+                      placeholder="Kgs"
+                      value={customOutput.kgs}
+                      onChange={(e) => setCustomOutput({...customOutput, kgs: e.target.value})}
+                    />
                   </div>
                   <p className="text-xs text-gray-600">
-                    Leave blank to use scaled default output. Use this if actual output differs (spillage, etc.)
+                    Leave blank to use scaled default output
                   </p>
                 </div>
 
@@ -1392,7 +1588,6 @@ export default function Production() {
                 )}
               </>
             ) : (
-              // Custom - ask for selling price
               <>
                 <div className="space-y-2">
                   <Label>Selling Price (Total) *</Label>
@@ -1403,9 +1598,6 @@ export default function Production() {
                     value={sellingPrice}
                     onChange={(e) => setSellingPrice(e.target.value)}
                   />
-                  <p className="text-xs text-gray-600">
-                    Price for the entire custom batch
-                  </p>
                 </div>
 
                 <div className="p-3 bg-green-50 rounded-lg border border-green-200">
@@ -1429,6 +1621,7 @@ export default function Production() {
               </>
             )}
           </div>
+          
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowExecuteFormulaDialog(false)}>
               Cancel
@@ -1437,6 +1630,77 @@ export default function Production() {
               {loading ? 'Executing...' : selectedFormula?.type === 'standard' ? 'Add to Inventory' : 'Proceed to Payment'}
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Substitution Dialog */}
+      <Dialog open={showSubstitutionDialog} onOpenChange={setShowSubstitutionDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Substitute Ingredient</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {substitutionIndex !== null && formulaIngredients[substitutionIndex] && (
+              <div className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600 mb-1">Replacing:</p>
+                <p className="font-semibold">{formulaIngredients[substitutionIndex].productName}</p>
+                <p className="text-sm text-gray-600 mt-1">
+                  Quantity will remain: {formulaIngredients[substitutionIndex].quantity} {formulaIngredients[substitutionIndex].unit}
+                </p>
+              </div>
+            )}
+
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search for replacement product..."
+                value={substitutionSearch}
+                onChange={(e) => setSubstitutionSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            <div className="border rounded-lg max-h-[400px] overflow-y-auto">
+              <div className="grid grid-cols-1 gap-2 p-2">
+                {substitutionProducts.map((product) => (
+                  <Card
+                    key={product._id}
+                    className="cursor-pointer hover:shadow-md hover:border-blue-500 transition-all"
+                    onClick={() => substituteIngredient(product)}
+                  >
+                    <CardContent className="p-3">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-sm">{product.name}</h3>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Stock: {product.quantity} {product.baseUnit}
+                          </p>
+                          <div className="flex gap-3 mt-1">
+                            <p className="text-xs text-blue-600">
+                              Sell: {formatCurrency(product.sellingPrice)}
+                            </p>
+                            <p className="text-xs text-green-600">
+                              Buy: {formatCurrency(product.buyingPrice)}
+                            </p>
+                          </div>
+                        </div>
+                        <Button size="sm" variant="ghost">
+                          Select
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              
+              {substitutionProducts.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No products found
+                </div>
+              )}
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
 

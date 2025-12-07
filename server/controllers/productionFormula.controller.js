@@ -1,4 +1,4 @@
-// server/controllers/productionFormula.controller.js - NEW
+// server/controllers/productionFormula.controller.js - UPDATED with Substitution Support
 
 import ProductionFormula from '../models/ProductionFormula.model.js';
 import Product from '../models/Product.model.js';
@@ -189,7 +189,17 @@ export const deleteFormula = async (req, res) => {
 export const executeFormula = async (req, res) => {
   try {
     const { id } = req.params;
-    const { outputBags, outputKgs, customQuantities } = req.body;
+    const { 
+      outputBags, 
+      outputKgs, 
+      scale,
+      scaledIngredients,
+      hasSubstitutions,
+      substitutionDetails,
+      sellingPrice,
+      sellImmediately,
+      saleData
+    } = req.body;
 
     const formula = await ProductionFormula.findById(id)
       .populate('ingredients.product')
@@ -202,13 +212,18 @@ export const executeFormula = async (req, res) => {
       });
     }
 
-    // Use custom quantities if provided, otherwise use formula defaults
-    const ingredients = customQuantities || formula.ingredients.map(ing => ({
+    // Use scaledIngredients if provided (with potential substitutions)
+    const ingredients = scaledIngredients || formula.ingredients.map(ing => ({
       product: ing.product._id,
       quantity: ing.quantity,
       unit: ing.unit,
       useBuyingPrice: ing.useBuyingPrice
     }));
+
+    // Calculate output quantity
+    const finalOutputBags = outputBags !== undefined ? outputBags : formula.defaultOutputBags;
+    const finalOutputKgs = outputKgs !== undefined ? outputKgs : formula.defaultOutputKgs;
+    const outputQuantity = finalOutputBags + (finalOutputKgs / 50);
 
     const productionData = {
       type: formula.type,
@@ -217,10 +232,16 @@ export const executeFormula = async (req, res) => {
       finalProduct: formula.finalProduct?._id,
       customerName: formula.customerName,
       customOutputName: formula.customOutputName,
-      outputBags: outputBags || formula.defaultOutputBags,
-      outputKgs: outputKgs || formula.defaultOutputKgs,
-      outputQuantity: (outputBags || formula.defaultOutputBags) + 
-                     ((outputKgs || formula.defaultOutputKgs) / 50)
+      outputBags: finalOutputBags,
+      outputKgs: finalOutputKgs,
+      outputQuantity,
+      sellingPrice: sellingPrice ? parseFloat(sellingPrice) : undefined,
+      sellImmediately: sellImmediately || false,
+      saleData: saleData || undefined,
+      // Add notes about substitutions if any
+      notes: hasSubstitutions 
+        ? `Formula executed with substitutions: ${substitutionDetails.map(s => `${s.original} → ${s.substituted}`).join(', ')}`
+        : `Formula executed at ${scale || 'full'} scale`
     };
 
     // Import and call completeProduction

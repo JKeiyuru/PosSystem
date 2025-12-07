@@ -281,6 +281,7 @@ export const completeProduction = async (req, res) => {
 };
 
 // Helper function for executing formulas
+// Add this function to properly handle substitutions when executing formulas
 export const completeProductionFromFormula = async (req, res, productionData, formula) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -289,6 +290,9 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
     let totalCost = 0;
     const processedIngredients = [];
 
+    // Get original formula ingredients for comparison
+    const originalIngredients = formula.ingredients || [];
+
     // Process each ingredient with multi-unit support
     for (const ing of productionData.ingredients) {
       const product = await Product.findById(ing.product).session(session);
@@ -296,6 +300,13 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
       if (!product) {
         throw new Error(`Product ${ing.product} not found`);
       }
+
+      // Check if this ingredient was substituted
+      const originalIng = originalIngredients.find(orig => 
+        orig.quantity === ing.quantity && orig.unit === ing.unit
+      );
+      
+      const wasSubstituted = originalIng && originalIng.product.toString() !== ing.product.toString();
 
       // Convert to base units
       let baseUnitQuantity = ing.quantity;
@@ -308,22 +319,27 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
       }
 
       if (product.quantity < baseUnitQuantity) {
-        throw new Error(`Insufficient stock for ${product.name}`);
+        throw new Error(`Insufficient stock for ${product.name}. Available: ${product.quantity} ${product.baseUnit}, Required: ${baseUnitQuantity.toFixed(2)} ${product.baseUnit}`);
       }
 
       const priceToUse = ing.useBuyingPrice ? product.buyingPrice : product.sellingPrice;
       const cost = priceToUse * ing.quantity;
       totalCost += cost;
 
-      processedIngredients.push({
+      const ingredientData = {
         product: product._id,
         productName: product.name,
         quantity: ing.quantity,
         unit: ing.unit,
         baseUnitQuantity,
         unitCost: priceToUse,
-        usedBuyingPrice: ing.useBuyingPrice || false
-      });
+        usedBuyingPrice: ing.useBuyingPrice || false,
+        wasSubstituted: wasSubstituted,
+        originalProduct: wasSubstituted ? originalIng.product : product._id,
+        originalProductName: wasSubstituted ? originalIng.productName : product.name
+      };
+
+      processedIngredients.push(ingredientData);
 
       const previousQuantity = product.quantity;
       product.quantity -= baseUnitQuantity;
@@ -335,7 +351,9 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
         quantity: -baseUnitQuantity,
         previousQuantity,
         newQuantity: product.quantity,
-        reference: `Formula: ${formula.name}`,
+        reference: wasSubstituted 
+          ? `Formula: ${formula.name} (Substituted for ${originalIng.productName})`
+          : `Formula: ${formula.name}`,
         performedBy: req.user.id
       }], { session });
     }
@@ -348,10 +366,11 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
       totalCost,
       costPerUnit,
       performedBy: req.user.id,
-      performedByName: req.user.name
+      performedByName: req.user.name,
+      hasSubstitutions: processedIngredients.some(ing => ing.wasSubstituted)
     };
 
-    // Handle standard vs custom
+    // Handle standard vs custom production
     if (productionData.type === 'standard' && productionData.finalProduct) {
       const finalProductDoc = await Product.findById(productionData.finalProduct).session(session);
       if (finalProductDoc) {
@@ -365,10 +384,86 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
           quantity: productionData.outputQuantity,
           previousQuantity,
           newQuantity: finalProductDoc.quantity,
-          reference: `Formula: ${formula.name}`,
+          reference: finalProductionData.hasSubstitutions 
+            ? `Formula: ${formula.name} (with substitutions)`
+            : `Formula: ${formula.name}`,
           performedBy: req.user.id
         }], { session });
       }
+    } else if (productionData.type === 'custom' && productionData.sellImmediately) {
+      // Handle custom production with direct sale
+      const saleData = productionData.saleData || {};
+      const saleTotal = parseFloat(productionData.sellingPrice || 0);
+      const amountPaid = saleData.amountPaid || 0;
+      const amountDue = Math.max(0, saleTotal - amountPaid);
+
+      let paymentStatus = 'paid';
+      if (saleData.paymentMethod === 'credit' || amountPaid === 0) {
+        paymentStatus = 'unpaid';
+      } else if (amountPaid < saleTotal) {
+        paymentStatus = 'partial';
+      }
+
+      // Find or create customer
+      let customer = null;
+      const existingCustomer = await Customer.findOne({ 
+        name: { $regex: new RegExp(`^${productionData.customerName}$`, 'i') }
+      }).session(session);
+
+      if (existingCustomer) {
+        customer = existingCustomer;
+      } else {
+        const newCustomer = await Customer.create([{
+          name: productionData.customerName,
+          phone: 'N/A',
+          customerType: 'regular',
+          notes: `Created from custom production: ${productionData.customOutputName}`
+        }], { session });
+        customer = newCustomer[0];
+      }
+
+      // Create sale
+      const sale = await Sale.create([{
+        items: [{
+          product: null,
+          productName: `${productionData.customerName} - ${productionData.customOutputName}`,
+          quantity: 1,
+          unit: 'batch',
+          unitPrice: saleTotal,
+          discount: 0,
+          totalPrice: saleTotal,
+          baseUnitQuantity: 1
+        }],
+        subtotal: saleTotal,
+        discount: 0,
+        transport: 0,
+        tax: 0,
+        total: saleTotal,
+        paymentMethod: saleData.paymentMethod || 'cash',
+        splitPayments: saleData.splitPayments,
+        paymentStatus,
+        amountPaid,
+        amountDue,
+        customer: customer._id,
+        customerName: customer.name,
+        cashier: req.user.id,
+        cashierName: req.user.name,
+        notes: finalProductionData.hasSubstitutions
+          ? `From custom production: ${productionData.customOutputName} (with substitutions)`
+          : `From custom production: ${productionData.customOutputName}`,
+        isCreditPayment: false
+      }], { session });
+
+      finalProductionData.saleReference = sale[0]._id;
+      finalProductionData.totalRevenue = saleTotal;
+      finalProductionData.profit = saleTotal - totalCost;
+
+      // Update customer totals
+      customer.totalPurchases += saleTotal;
+      if (amountDue > 0) {
+        customer.currentCredit += amountDue;
+      }
+      await customer.save({ session });
     }
 
     const production = await Production.create([finalProductionData], { session });
@@ -380,11 +475,25 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
 
     await session.commitTransaction();
 
-    res.status(201).json({
-      success: true,
-      message: 'Production completed successfully using formula',
-      data: production[0]
-    });
+    // If sale was created, populate and return it
+    if (finalProductionData.saleReference) {
+      const populatedSale = await Sale.findById(finalProductionData.saleReference)
+        .populate('customer')
+        .populate('cashier', 'name');
+
+      res.status(201).json({
+        success: true,
+        message: 'Production completed successfully using formula',
+        data: production[0],
+        sale: populatedSale
+      });
+    } else {
+      res.status(201).json({
+        success: true,
+        message: 'Production completed successfully using formula',
+        data: production[0]
+      });
+    }
   } catch (error) {
     await session.abortTransaction();
     res.status(500).json({
@@ -547,3 +656,4 @@ export const getProductionStats = async (req, res) => {
     });
   }
 };
+
