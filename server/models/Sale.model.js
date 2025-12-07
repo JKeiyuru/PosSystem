@@ -1,4 +1,4 @@
-// server/models/Sale.model.js - UPDATED with new payment methods
+// server/models/Sale.model.js - FIXED with atomic counter approach
 
 import mongoose from 'mongoose';
 
@@ -137,29 +137,70 @@ const saleSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Helper function to generate unique sale number with proper locking
+async function generateUniqueSaleNumber() {
+  const date = new Date();
+  const year = date.getFullYear().toString().slice(-2);
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  const prefix = `BAF-${year}${month}${day}`;
+  
+  let attempts = 0;
+  const maxAttempts = 10;
+  
+  while (attempts < maxAttempts) {
+    try {
+      // Find the highest existing number for today
+      const latestSale = await mongoose.model('Sale')
+        .findOne({ 
+          saleNumber: { $regex: `^${prefix}` } 
+        })
+        .sort({ saleNumber: -1 })
+        .select('saleNumber')
+        .lean();
+      
+      let nextNumber = 1;
+      
+      if (latestSale && latestSale.saleNumber) {
+        // Extract the number from the sale number (e.g., "BAF-251205-0019" -> 19)
+        const match = latestSale.saleNumber.match(/-(\d+)$/);
+        if (match) {
+          nextNumber = parseInt(match[1]) + 1;
+        }
+      }
+      
+      const proposedNumber = `${prefix}-${nextNumber.toString().padStart(4, '0')}`;
+      
+      // Double-check it doesn't exist (race condition safety)
+      const exists = await mongoose.model('Sale').findOne({ saleNumber: proposedNumber }).lean();
+      
+      if (!exists) {
+        return proposedNumber;
+      }
+      
+      // If it exists, increment and try again
+      attempts++;
+      
+    } catch (error) {
+      console.error('Error in generateUniqueSaleNumber (attempt ' + (attempts + 1) + '):', error);
+      attempts++;
+    }
+  }
+  
+  // Ultimate fallback: use timestamp
+  return `BAF-${year}${month}${day}-${Date.now().toString().slice(-6)}`;
+}
+
 // Generate sale number before validation
 saleSchema.pre('validate', async function(next) {
   if (!this.saleNumber) {
     try {
-      const date = new Date();
-      const year = date.getFullYear().toString().slice(-2);
-      const month = (date.getMonth() + 1).toString().padStart(2, '0');
-      const day = date.getDate().toString().padStart(2, '0');
-      
-      const startOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0);
-      const endOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59);
-      
-      const count = await mongoose.model('Sale').countDocuments({
-        createdAt: {
-          $gte: startOfDay,
-          $lte: endOfDay
-        }
-      });
-      
-      this.saleNumber = `BAF-${year}${month}${day}-${(count + 1).toString().padStart(4, '0')}`;
+      this.saleNumber = await generateUniqueSaleNumber();
     } catch (error) {
-      console.error('Error generating sale number:', error);
-      this.saleNumber = `BAF-${Date.now()}`;
+      console.error('Failed to generate sale number:', error);
+      // Final fallback
+      const timestamp = Date.now().toString().slice(-10);
+      this.saleNumber = `BAF-${timestamp}`;
     }
   }
   
