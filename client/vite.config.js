@@ -36,6 +36,8 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
+        // ADDED: Fix for the original PWA cache size error
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // Increased from 2MB to 3MB
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/api\./i,
@@ -66,4 +68,8 @@ export default defineConfig({
       },
     },
   },
+  // OPTIONAL: Add only if you still get chunk size warnings
+  build: {
+    chunkSizeWarningLimit: 1500, // Increased from default 500KB
+  }
 })
