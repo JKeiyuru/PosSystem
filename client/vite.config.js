@@ -36,7 +36,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // Added: Increased from 2MB to 3MB
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // Increased from 2MB to 3MB
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/api\./i,
@@ -67,32 +67,24 @@ export default defineConfig({
       },
     },
   },
-  // Added: Build configuration for better chunking
+  // Updated: Simplified build configuration to prevent React splitting issues
   build: {
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          // Create separate chunks for better optimization
-          if (id.includes('node_modules')) {
-            if (id.includes('react') || id.includes('react-dom')) {
-              return 'vendor-react'
-            }
-            if (id.includes('antd') || id.includes('@ant-design')) {
-              return 'vendor-antd'
-            }
-            if (id.includes('jspdf') || id.includes('pdf')) {
-              return 'vendor-pdf'
-            }
-            if (id.includes('chart') || id.includes('recharts')) {
-              return 'vendor-charts'
-            }
-            // Group remaining node_modules
-            return 'vendor-other'
-          }
+        manualChunks: {
+          // Group React and React DOM together - they should NEVER be separated
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          // Group UI libraries
+          'antd-vendor': ['antd', '@ant-design/icons'],
+          // Group charting libraries
+          'chart-vendor': ['recharts'],
+          // Group PDF libraries
+          'pdf-vendor': ['jspdf', 'jspdf-autotable'],
+          // Group utility libraries
+          'utils-vendor': ['dayjs', 'axios', 'lodash']
         }
       }
     },
-    // Increase chunk size warning limit
-    chunkSizeWarningLimit: 1000, // 1000KB = 1MB
+    chunkSizeWarningLimit: 1000,
   }
 })
