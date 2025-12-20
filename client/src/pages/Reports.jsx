@@ -60,7 +60,7 @@ export default function Reports() {
         startDate: dateRange.startDate,
         endDate: dateRange.endDate
       });
-      setDailyReports(response.data);
+      setDailyReports(response.data || []);
     } catch (error) {
       console.error('Error fetching daily reports:', error);
     } finally {
@@ -96,6 +96,7 @@ export default function Reports() {
     try {
       setLoading(true);
       const response = await reportService.getCashFlow(dateRange.startDate, dateRange.endDate);
+      console.log('Cash Flow Response:', response); // Debug log
       setCashFlow(response.data);
     } catch (error) {
       console.error('Error fetching cash flow:', error);
@@ -138,13 +139,17 @@ export default function Reports() {
               />
             </div>
             <div className="flex items-end">
-              <Button className="w-full" onClick={() => {
-                fetchSalesReport();
-                fetchProductPerformance();
-                fetchCashFlow();
-              }}>
+              <Button 
+                className="w-full" 
+                onClick={() => {
+                  fetchSalesReport();
+                  fetchProductPerformance();
+                  fetchCashFlow();
+                }}
+                disabled={loading}
+              >
                 <Calendar className="mr-2 h-4 w-4" />
-                Generate Reports
+                {loading ? 'Generating...' : 'Generate Reports'}
               </Button>
             </div>
           </div>
@@ -163,7 +168,7 @@ export default function Reports() {
 
         {/* Sales Report Tab */}
         <TabsContent value="sales" className="space-y-4">
-          {salesReport ? (
+          {salesReport?.data ? (
             <>
               {/* Summary Cards with Download Button */}
               <div className="flex justify-between items-center mb-4">
@@ -178,7 +183,7 @@ export default function Reports() {
                   </Button>
                   <Button 
                     variant="outline" 
-                    onClick={() => downloadSalesCSV(salesReport.data.sales)}
+                    onClick={() => downloadSalesCSV(salesReport.data?.sales || [])}
                   >
                     <Download className="mr-2 h-4 w-4" />
                     Export CSV
@@ -192,7 +197,7 @@ export default function Reports() {
                     <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{salesReport.data.summary.totalSales}</div>
+                    <div className="text-2xl font-bold">{salesReport.data?.summary?.totalSales || 0}</div>
                   </CardContent>
                 </Card>
 
@@ -201,7 +206,7 @@ export default function Reports() {
                     <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{formatCurrency(salesReport.data.summary.totalRevenue)}</div>
+                    <div className="text-2xl font-bold">{formatCurrency(salesReport.data?.summary?.totalRevenue || 0)}</div>
                   </CardContent>
                 </Card>
 
@@ -211,7 +216,7 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-green-600">
-                      {formatCurrency(salesReport.data.summary.grossProfit)}
+                      {formatCurrency(salesReport.data?.summary?.grossProfit || 0)}
                     </div>
                   </CardContent>
                 </Card>
@@ -221,7 +226,7 @@ export default function Reports() {
                     <CardTitle className="text-sm font-medium">Profit Margin</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{salesReport.data.summary.profitMargin}</div>
+                    <div className="text-2xl font-bold">{salesReport.data?.summary?.profitMargin || '0%'}</div>
                   </CardContent>
                 </Card>
               </div>
@@ -236,9 +241,9 @@ export default function Reports() {
                     <PieChart>
                       <Pie
                         data={[
-                          { name: 'Cash', value: salesReport.data.paymentBreakdown.cash },
-                          { name: 'M-Pesa', value: salesReport.data.paymentBreakdown.mpesa },
-                          { name: 'Credit', value: salesReport.data.paymentBreakdown.credit }
+                          { name: 'Cash', value: salesReport.data?.paymentBreakdown?.cash || 0 },
+                          { name: 'M-Pesa', value: salesReport.data?.paymentBreakdown?.mpesa || 0 },
+                          { name: 'Credit', value: salesReport.data?.paymentBreakdown?.credit || 0 }
                         ]}
                         cx="50%"
                         cy="50%"
@@ -276,13 +281,13 @@ export default function Reports() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {salesReport.data.sales.map((sale) => (
+                      {(salesReport.data?.sales || []).map((sale) => (
                         <TableRow key={sale._id}>
                           <TableCell>{sale.saleNumber}</TableCell>
                           <TableCell>{formatDate(sale.saleDate)}</TableCell>
                           <TableCell>{sale.customerName || 'Walk-in'}</TableCell>
-                          <TableCell className="capitalize">{sale.paymentMethod.replace('_', ' ')}</TableCell>
-                          <TableCell>{formatCurrency(sale.total)}</TableCell>
+                          <TableCell className="capitalize">{(sale.paymentMethod || '').replace('_', ' ')}</TableCell>
+                          <TableCell>{formatCurrency(sale.total || 0)}</TableCell>
                           <TableCell className="text-green-600 font-semibold">
                             {formatCurrency(sale.grossProfit || 0)}
                           </TableCell>
@@ -304,7 +309,7 @@ export default function Reports() {
 
         {/* Product Performance Tab */}
         <TabsContent value="products" className="space-y-4">
-          {productPerformance ? (
+          {productPerformance?.data ? (
             <>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold">Product Performance</h2>
@@ -323,7 +328,7 @@ export default function Reports() {
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={productPerformance.data.topProducts}>
+                    <BarChart data={productPerformance.data?.topProducts || []}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="productName" />
                       <YAxis />
@@ -353,11 +358,11 @@ export default function Reports() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {productPerformance.data.topProducts.map((product, index) => (
+                      {(productPerformance.data?.topProducts || []).map((product, index) => (
                         <TableRow key={index}>
-                          <TableCell className="font-medium">{product.productName}</TableCell>
-                          <TableCell>{product.quantitySold}</TableCell>
-                          <TableCell>{formatCurrency(product.revenue)}</TableCell>
+                          <TableCell className="font-medium">{product.productName || 'Unknown'}</TableCell>
+                          <TableCell>{product.quantitySold || 0}</TableCell>
+                          <TableCell>{formatCurrency(product.revenue || 0)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -376,7 +381,7 @@ export default function Reports() {
 
         {/* Cash Flow Tab */}
         <TabsContent value="cashflow" className="space-y-4">
-          {cashFlow ? (
+          {cashFlow?.data ? (
             <>
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold">Cash Flow Report</h2>
@@ -396,7 +401,7 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-green-600">
-                      {formatCurrency(cashFlow.data.totalInflow)}
+                      {formatCurrency(cashFlow.data?.totalInflow || 0)}
                     </div>
                   </CardContent>
                 </Card>
@@ -406,7 +411,7 @@ export default function Reports() {
                     <CardTitle className="text-sm font-medium">Cash</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{formatCurrency(cashFlow.data.cashIn)}</div>
+                    <div className="text-2xl font-bold">{formatCurrency(cashFlow.data?.cashIn || 0)}</div>
                   </CardContent>
                 </Card>
 
@@ -415,7 +420,7 @@ export default function Reports() {
                     <CardTitle className="text-sm font-medium">M-Pesa</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{formatCurrency(cashFlow.data.mpesaIn)}</div>
+                    <div className="text-2xl font-bold">{formatCurrency(cashFlow.data?.mpesaIn || 0)}</div>
                   </CardContent>
                 </Card>
 
@@ -425,7 +430,7 @@ export default function Reports() {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-red-600">
-                      {formatCurrency(cashFlow.data.cashOut)}
+                      {formatCurrency(cashFlow.data?.cashOut || 0)}
                     </div>
                   </CardContent>
                 </Card>
@@ -437,9 +442,11 @@ export default function Reports() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-center">
-                    <p className="text-sm text-gray-600 mb-2">Period: {formatDate(cashFlow.data.period.start)} - {formatDate(cashFlow.data.period.end)}</p>
-                    <div className={`text-4xl font-bold ${cashFlow.data.netCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {formatCurrency(cashFlow.data.netCashFlow)}
+                    <p className="text-sm text-gray-600 mb-2">
+                      Period: {formatDate(cashFlow.data?.period?.start || dateRange.startDate)} - {formatDate(cashFlow.data?.period?.end || dateRange.endDate)}
+                    </p>
+                    <div className={`text-4xl font-bold ${(cashFlow.data?.netCashFlow || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(cashFlow.data?.netCashFlow || 0)}
                     </div>
                   </div>
                 </CardContent>
@@ -463,7 +470,7 @@ export default function Reports() {
                 <FileText className="mr-2 h-4 w-4" />
                 Generate Balance Sheet
               </Button>
-              {balanceSheet && (
+              {balanceSheet?.data && (
                 <Button 
                   variant="outline" 
                   onClick={() => downloadBalanceSheetPDF(balanceSheet.data)}
@@ -475,7 +482,7 @@ export default function Reports() {
             </div>
           </div>
 
-          {balanceSheet && (
+          {balanceSheet?.data ? (
             <div className="grid gap-4 md:grid-cols-2">
               {/* Assets */}
               <Card>
@@ -488,22 +495,22 @@ export default function Reports() {
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span>Cash in Hand:</span>
-                        <span className="font-medium">{formatCurrency(balanceSheet.data.assets.currentAssets.cashInHand)}</span>
+                        <span className="font-medium">{formatCurrency(balanceSheet.data?.assets?.currentAssets?.cashInHand || 0)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Accounts Receivable:</span>
-                        <span className="font-medium">{formatCurrency(balanceSheet.data.assets.currentAssets.accountsReceivable)}</span>
+                        <span className="font-medium">{formatCurrency(balanceSheet.data?.assets?.currentAssets?.accountsReceivable || 0)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Inventory:</span>
-                        <span className="font-medium">{formatCurrency(balanceSheet.data.assets.currentAssets.inventory)}</span>
+                        <span className="font-medium">{formatCurrency(balanceSheet.data?.assets?.currentAssets?.inventory || 0)}</span>
                       </div>
                     </div>
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between font-bold text-lg">
                       <span>Total Assets:</span>
-                      <span>{formatCurrency(balanceSheet.data.assets.totalAssets)}</span>
+                      <span>{formatCurrency(balanceSheet.data?.assets?.totalAssets || 0)}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -520,31 +527,37 @@ export default function Reports() {
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span>Accounts Payable:</span>
-                        <span className="font-medium">{formatCurrency(balanceSheet.data.liabilities.currentLiabilities.accountsPayable)}</span>
+                        <span className="font-medium">{formatCurrency(balanceSheet.data?.liabilities?.currentLiabilities?.accountsPayable || 0)}</span>
                       </div>
                     </div>
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between">
                       <span className="font-semibold">Total Liabilities:</span>
-                      <span className="font-medium">{formatCurrency(balanceSheet.data.liabilities.totalLiabilities)}</span>
+                      <span className="font-medium">{formatCurrency(balanceSheet.data?.liabilities?.totalLiabilities || 0)}</span>
                     </div>
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between">
                       <span className="font-semibold">Owner's Equity:</span>
-                      <span className="font-medium">{formatCurrency(balanceSheet.data.equity.ownersEquity)}</span>
+                      <span className="font-medium">{formatCurrency(balanceSheet.data?.equity?.ownersEquity || 0)}</span>
                     </div>
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between font-bold text-lg">
                       <span>Total Liabilities & Equity:</span>
-                      <span>{formatCurrency(balanceSheet.data.totalLiabilitiesAndEquity)}</span>
+                      <span>{formatCurrency(balanceSheet.data?.totalLiabilitiesAndEquity || 0)}</span>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             </div>
+          ) : (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-center text-gray-500">Click "Generate Balance Sheet" to view balance sheet data</p>
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
 
@@ -562,10 +575,10 @@ export default function Reports() {
           </div>
 
           <Button onClick={fetchDailyReports} disabled={loading}>
-            Load Daily Reports
+            {loading ? 'Loading...' : 'Load Daily Reports'}
           </Button>
 
-          {dailyReports.length > 0 && (
+          {dailyReports.length > 0 ? (
             <Card>
               <CardHeader>
                 <CardTitle>Daily Reports History</CardTitle>
@@ -588,21 +601,27 @@ export default function Reports() {
                     {dailyReports.map((report) => (
                       <TableRow key={report._id}>
                         <TableCell>{formatDate(report.reportDate)}</TableCell>
-                        <TableCell>{formatCurrency(report.openingCash)}</TableCell>
-                        <TableCell>{formatCurrency(report.expectedCash)}</TableCell>
-                        <TableCell>{formatCurrency(report.actualCash)}</TableCell>
+                        <TableCell>{formatCurrency(report.openingCash || 0)}</TableCell>
+                        <TableCell>{formatCurrency(report.expectedCash || 0)}</TableCell>
+                        <TableCell>{formatCurrency(report.actualCash || 0)}</TableCell>
                         <TableCell>
-                          <span className={report.variance >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
-                            {report.variance >= 0 ? '+' : ''}{formatCurrency(report.variance)}
+                          <span className={(report.variance || 0) >= 0 ? 'text-green-600 font-semibold' : 'text-red-600 font-semibold'}>
+                            {(report.variance || 0) >= 0 ? '+' : ''}{formatCurrency(report.variance || 0)}
                           </span>
                         </TableCell>
-                        <TableCell className="text-red-600">{formatCurrency(report.totalExpenses)}</TableCell>
-                        <TableCell>{formatCurrency(report.totalRevenue)}</TableCell>
-                        <TableCell>{report.closedByName}</TableCell>
+                        <TableCell className="text-red-600">{formatCurrency(report.totalExpenses || 0)}</TableCell>
+                        <TableCell>{formatCurrency(report.totalRevenue || 0)}</TableCell>
+                        <TableCell>{report.closedByName || 'Unknown'}</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
                 </Table>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-center text-gray-500">No daily reports found for selected date range</p>
               </CardContent>
             </Card>
           )}
