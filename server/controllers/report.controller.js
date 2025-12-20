@@ -1,17 +1,16 @@
-// server/controllers/report.controller.js
+// server/controllers/report.controller.js - FIXED profit calculations
 
 import Sale from '../models/Sale.model.js';
 import Product from '../models/Product.model.js';
 import Customer from '../models/Customer.model.js';
 import StockMovement from '../models/StockMovement.model.js';
 
-
-// Get monthly revenue and profit data
+// Get monthly revenue and profit data - FIXED to use sale.grossProfit
 export const getMonthlyProfit = async (req, res) => {
   try {
     const currentYear = new Date().getFullYear();
-    const startDate = new Date(currentYear, 0, 1); // January 1st of current year
-    const endDate = new Date(currentYear, 11, 31); // December 31st of current year
+    const startDate = new Date(currentYear, 0, 1);
+    const endDate = new Date(currentYear, 11, 31);
 
     const monthlyData = await Sale.aggregate([
       {
@@ -20,7 +19,7 @@ export const getMonthlyProfit = async (req, res) => {
             $gte: startDate,
             $lte: endDate
           },
-          paymentStatus: { $in: ['paid', 'partial'] }
+          paymentStatus: { $in: ['paid', 'partial', 'unpaid'] } // Include all sales
         }
       },
       {
@@ -30,20 +29,8 @@ export const getMonthlyProfit = async (req, res) => {
             month: { $month: '$saleDate' }
           },
           revenue: { $sum: '$total' },
-          costOfGoods: { 
-            $sum: {
-              $reduce: {
-                input: '$items',
-                initialValue: 0,
-                in: {
-                  $add: [
-                    '$$value',
-                    { $multiply: ['$$this.quantity', '$$this.buyingPrice'] }
-                  ]
-                }
-              }
-            }
-          },
+          // Use the profit already calculated in the sale document
+          profit: { $sum: '$grossProfit' },
           salesCount: { $sum: 1 }
         }
       },
@@ -63,8 +50,7 @@ export const getMonthlyProfit = async (req, res) => {
             }
           },
           revenue: 1,
-          costOfGoods: 1,
-          profit: { $subtract: ['$revenue', '$costOfGoods'] },
+          profit: 1,
           salesCount: 1,
           year: '$_id.year'
         }
@@ -87,7 +73,7 @@ export const getMonthlyProfit = async (req, res) => {
   }
 };
 
-// server/controllers/report.controller.js - Fix getDailySalesReport
+// Get daily sales report - FIXED to use sale.grossProfit
 export const getDailySalesReport = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -99,25 +85,14 @@ export const getDailySalesReport = async (req, res) => {
       saleDate: { $gte: start, $lte: end }
     }).populate('items.product').populate('customer').populate('cashier', 'name');
 
+    // Sum up revenue and profit from sale records
     const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
-    
-    // Calculate actual cost of goods sold
-    let totalCost = 0;
-    for (const sale of sales) {
-      for (const item of sale.items) {
-        if (item.product) {
-          // Cost = buying price * quantity in base units
-          const costForItem = item.product.buyingPrice * (item.baseUnitQuantity || item.quantity);
-          totalCost += costForItem;
-        }
-      }
-    }
-    
-    const grossProfit = totalRevenue - totalCost;
+    const grossProfit = sales.reduce((sum, sale) => sum + (sale.grossProfit || 0), 0);
+    const totalCost = sales.reduce((sum, sale) => sum + (sale.totalCost || 0), 0);
 
     const paymentBreakdown = {
       cash: sales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.amountPaid, 0),
-      mpesa: sales.filter(s => s.paymentMethod === 'mpesa').reduce((sum, s) => sum + s.amountPaid, 0),
+      mpesa: sales.filter(s => s.paymentMethod.includes('mpesa')).reduce((sum, s) => sum + s.amountPaid, 0),
       credit: sales.filter(s => s.paymentMethod === 'credit').reduce((sum, s) => sum + s.total, 0)
     };
 
@@ -146,15 +121,12 @@ export const getDailySalesReport = async (req, res) => {
 
 export const getBalanceSheet = async (req, res) => {
   try {
-    // Assets
     const products = await Product.find({ isActive: true });
     const inventory = products.reduce((sum, p) => sum + (p.quantity * p.buyingPrice), 0);
     
-    // Receivables (customer credit)
     const customers = await Customer.find({ isActive: true });
     const accountsReceivable = customers.reduce((sum, c) => sum + c.currentCredit, 0);
 
-    // Sales data for period
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const sales = await Sale.find({ saleDate: { $gte: startOfMonth } });
     const cashInHand = sales.filter(s => s.paymentMethod === 'cash')
@@ -162,11 +134,9 @@ export const getBalanceSheet = async (req, res) => {
 
     const totalAssets = inventory + accountsReceivable + cashInHand;
 
-    // Liabilities (for simplicity, we'll use accounts payable as 0 for now)
     const accountsPayable = 0;
     const totalLiabilities = accountsPayable;
 
-    // Equity
     const equity = totalAssets - totalLiabilities;
 
     res.json({
@@ -215,7 +185,7 @@ export const getProductPerformance = async (req, res) => {
 
     sales.forEach(sale => {
       sale.items.forEach(item => {
-        const productId = item.product.toString();
+        const productId = item.product ? item.product.toString() : 'unknown';
         
         if (!productStats[productId]) {
           productStats[productId] = {
@@ -265,7 +235,7 @@ export const getCashFlowReport = async (req, res) => {
     const cashIn = sales.filter(s => s.paymentMethod === 'cash')
       .reduce((sum, s) => sum + s.amountPaid, 0);
     
-    const mpesaIn = sales.filter(s => s.paymentMethod === 'mpesa')
+    const mpesaIn = sales.filter(s => s.paymentMethod.includes('mpesa'))
       .reduce((sum, s) => sum + s.amountPaid, 0);
 
     const restockMovements = await StockMovement.find({
@@ -297,19 +267,3 @@ export const getCashFlowReport = async (req, res) => {
     });
   }
 };
-
-// Helper function
-async function calculateCostOfGoodsSold(sales) {
-  let totalCost = 0;
-
-  for (const sale of sales) {
-    for (const item of sale.items) {
-      const product = await Product.findById(item.product);
-      if (product) {
-        totalCost += item.quantity * product.buyingPrice;
-      }
-    }
-  }
-
-  return totalCost;
-}

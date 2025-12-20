@@ -1,4 +1,4 @@
-// server/models/Sale.model.js - FIXED with atomic counter approach
+// server/models/Sale.model.js - FIXED with per-sale profit calculation
 
 import mongoose from 'mongoose';
 
@@ -92,6 +92,16 @@ const saleSchema = new mongoose.Schema({
     required: true,
     min: 0
   },
+  // NEW: Store calculated profit at time of sale
+  totalCost: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
+  grossProfit: {
+    type: Number,
+    default: 0
+  },
   paymentMethod: {
     type: String,
     enum: ['cash', 'mpesa_paybill', 'mpesa_till', 'gdc_paybill', 'mpesa_beth', 'mpesa_martin', 'credit'],
@@ -150,7 +160,6 @@ async function generateUniqueSaleNumber() {
   
   while (attempts < maxAttempts) {
     try {
-      // Find the highest existing number for today
       const latestSale = await mongoose.model('Sale')
         .findOne({ 
           saleNumber: { $regex: `^${prefix}` } 
@@ -162,7 +171,6 @@ async function generateUniqueSaleNumber() {
       let nextNumber = 1;
       
       if (latestSale && latestSale.saleNumber) {
-        // Extract the number from the sale number (e.g., "BAF-251205-0019" -> 19)
         const match = latestSale.saleNumber.match(/-(\d+)$/);
         if (match) {
           nextNumber = parseInt(match[1]) + 1;
@@ -170,15 +178,12 @@ async function generateUniqueSaleNumber() {
       }
       
       const proposedNumber = `${prefix}-${nextNumber.toString().padStart(4, '0')}`;
-      
-      // Double-check it doesn't exist (race condition safety)
       const exists = await mongoose.model('Sale').findOne({ saleNumber: proposedNumber }).lean();
       
       if (!exists) {
         return proposedNumber;
       }
       
-      // If it exists, increment and try again
       attempts++;
       
     } catch (error) {
@@ -187,9 +192,26 @@ async function generateUniqueSaleNumber() {
     }
   }
   
-  // Ultimate fallback: use timestamp
-  return `BAF-${year}${month}${day}-${Date.now().toString().slice(-6)}`;
+  const timestamp = Date.now().toString().slice(-10);
+  return `BAF-${timestamp}`;
 }
+
+// Calculate profit before saving
+saleSchema.pre('save', function(next) {
+  // Calculate total cost from buying prices
+  let totalCost = 0;
+  
+  this.items.forEach(item => {
+    const itemCost = item.buyingPrice * (item.baseUnitQuantity || item.quantity);
+    totalCost += itemCost;
+  });
+  
+  this.totalCost = totalCost;
+  // Gross profit = Total revenue - Total cost
+  this.grossProfit = this.total - totalCost;
+  
+  next();
+});
 
 // Generate sale number before validation
 saleSchema.pre('validate', async function(next) {
@@ -198,7 +220,6 @@ saleSchema.pre('validate', async function(next) {
       this.saleNumber = await generateUniqueSaleNumber();
     } catch (error) {
       console.error('Failed to generate sale number:', error);
-      // Final fallback
       const timestamp = Date.now().toString().slice(-10);
       this.saleNumber = `BAF-${timestamp}`;
     }

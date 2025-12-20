@@ -1,4 +1,4 @@
-// client/src/pages/Sales.jsx - WITH TOTAL PROFIT CARD
+// client/src/pages/Sales.jsx - WITH PROFIT FROM SALE RECORDS AND DOWNLOADS
 
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -31,6 +31,7 @@ import api from '../services/api';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { useAuth } from '../hooks/useAuth';
+import { downloadSalesCSV } from '../utils/reportDownload';
 
 export default function Sales() {
   const { user } = useAuth();
@@ -202,18 +203,18 @@ export default function Sales() {
     documentTitle: `Receipt-${selectedSale?.saleNumber}`,
   });
 
- const getPaymentMethodBadge = (method) => {
-  const methods = {
-    cash: { label: 'Cash', color: 'default' },
-    mpesa_paybill: { label: 'M-Pesa (Paybill)', color: 'success' },
-    mpesa_till: { label: 'M-Pesa (Till)', color: 'success' },
-    gdc_paybill: { label: 'GDC Paybill', color: 'success' },
-    mpesa_beth: { label: 'M-Pesa (Beth)', color: 'success' },
-    mpesa_martin: { label: 'M-Pesa (Martin)', color: 'success' },
-    credit: { label: 'Credit', color: 'warning' }
+  const getPaymentMethodBadge = (method) => {
+    const methods = {
+      cash: { label: 'Cash', color: 'default' },
+      mpesa_paybill: { label: 'M-Pesa (Paybill)', color: 'success' },
+      mpesa_till: { label: 'M-Pesa (Till)', color: 'success' },
+      gdc_paybill: { label: 'GDC Paybill', color: 'success' },
+      mpesa_beth: { label: 'M-Pesa (Beth)', color: 'success' },
+      mpesa_martin: { label: 'M-Pesa (Martin)', color: 'success' },
+      credit: { label: 'Credit', color: 'warning' }
+    };
+    return <Badge variant={methods[method]?.color || 'default'}>{methods[method]?.label || method}</Badge>;
   };
-  return <Badge variant={methods[method]?.color || 'default'}>{methods[method]?.label || method}</Badge>;
-};
 
   const getPaymentStatusBadge = (status) => {
     const statuses = {
@@ -224,24 +225,13 @@ export default function Sales() {
     return <Badge variant={statuses[status]?.color || 'default'}>{statuses[status]?.label || status}</Badge>;
   };
 
-  // NEW: Calculate totals including profit
- const calculateTotals = () => {
-  const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
-  const totalPaid = sales.reduce((sum, sale) => sum + sale.amountPaid, 0);
-  const totalDue = sales.reduce((sum, sale) => sum + sale.amountDue, 0);
-  
-  // FIXED: Calculate total cost using buyingPrice stored in sale items (not from product)
-  let totalCost = 0;
-  sales.forEach(sale => {
-    sale.items?.forEach(item => {
-      // Use the buyingPrice that was stored at time of sale
-      // This ensures accurate profit calculation even if product prices change
-      const itemCost = (item.buyingPrice || 0) * (item.baseUnitQuantity || item.quantity);
-      totalCost += itemCost;
-    });
-  });
-    
-    const totalProfit = totalRevenue - totalCost;
+  // Calculate totals including profit
+  const calculateTotals = () => {
+    const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
+    const totalPaid = sales.reduce((sum, sale) => sum + sale.amountPaid, 0);
+    const totalDue = sales.reduce((sum, sale) => sum + sale.amountDue, 0);
+    // Use the grossProfit stored in each sale
+    const totalProfit = sales.reduce((sum, sale) => sum + (sale.grossProfit || 0), 0);
     
     return { totalRevenue, totalPaid, totalDue, totalProfit };
   };
@@ -256,9 +246,16 @@ export default function Sales() {
             <h1 className="text-3xl font-bold">Sales</h1>
             <p className="text-gray-600">View and manage all sales transactions</p>
           </div>
+          <Button 
+            variant="outline"
+            onClick={() => downloadSalesCSV(sales)}
+          >
+            <Download className="mr-2 h-4 w-4" />
+            Export CSV
+          </Button>
         </div>
 
-        {/* Summary Cards - WITH NEW PROFIT CARD */}
+        {/* Summary Cards - WITH PROFIT CARD */}
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
@@ -278,7 +275,7 @@ export default function Sales() {
             </CardContent>
           </Card>
 
-          {/* NEW: Total Profit Card */}
+          {/* Total Profit Card */}
           <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium flex items-center">
@@ -378,7 +375,7 @@ export default function Sales() {
           </CardContent>
         </Card>
 
-        {/* Sales Table */}
+        {/* Sales Table - WITH PROFIT COLUMN */}
         <Card>
           <CardHeader>
             <CardTitle>
@@ -401,6 +398,7 @@ export default function Sales() {
                     <TableHead>Cashier</TableHead>
                     <TableHead>Payment Method</TableHead>
                     <TableHead>Amount</TableHead>
+                    <TableHead>Profit</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Actions</TableHead>
                   </TableRow>
@@ -414,6 +412,9 @@ export default function Sales() {
                       <TableCell>{sale.cashierName}</TableCell>
                       <TableCell>{getPaymentMethodBadge(sale.paymentMethod)}</TableCell>
                       <TableCell>{formatCurrency(sale.total)}</TableCell>
+                      <TableCell className="text-green-600 font-semibold">
+                        {formatCurrency(sale.grossProfit || 0)}
+                      </TableCell>
                       <TableCell>{getPaymentStatusBadge(sale.paymentStatus)}</TableCell>
                       <TableCell>
                         <div className="flex space-x-2">
@@ -540,6 +541,10 @@ export default function Sales() {
                   <div className="flex justify-between font-bold text-lg border-t pt-2">
                     <span>Total:</span>
                     <span>{formatCurrency(selectedSale.total)}</span>
+                  </div>
+                  <div className="flex justify-between text-green-600 font-semibold">
+                    <span>Gross Profit:</span>
+                    <span>{formatCurrency(selectedSale.grossProfit || 0)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Amount Paid:</span>

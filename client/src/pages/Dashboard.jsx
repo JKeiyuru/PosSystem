@@ -1,10 +1,10 @@
-// client/src/pages/Dashboard.jsx - FIXED PROFIT CALCULATION
+// client/src/pages/Dashboard.jsx - FIXED with credit sales card and profit from sale records
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
-import { Alert, AlertDescription } from '../components/ui/alert';
+import { Alert, AlertDescription, AlertTitle } from '../components/ui/alert';
 import { 
   Table, 
   TableBody, 
@@ -22,7 +22,8 @@ import {
   Users,
   CreditCard,
   RefreshCw,
-  BarChart3
+  BarChart3,
+  Wallet
 } from 'lucide-react';
 import { saleService } from '../services/sale.service';
 import { productService } from '../services/product.service';
@@ -37,6 +38,7 @@ export default function Dashboard() {
     todaySales: 0,
     todayRevenue: 0,
     todayDebtPayments: 0,
+    todayCreditSales: 0, // NEW: Credit given today
     lowStockCount: 0,
     stockValue: 0
   });
@@ -110,6 +112,7 @@ export default function Dashboard() {
         todaySales: todaySales.salesCount,
         todayRevenue: todaySales.totalSales,
         todayDebtPayments,
+        todayCreditSales: todaySales.totalCredit || 0, // NEW
         lowStockCount: lowStockRes.data.length,
         stockValue: stockValueRes.data.stockValue
       });
@@ -191,8 +194,8 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
+      {/* Stats Cards - NOW WITH CREDIT SALES CARD */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
         <Card 
           className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
           onClick={() => setShowTodaysSalesDialog(true)}
@@ -220,6 +223,22 @@ export default function Dashboard() {
             </div>
             <p className="text-xs text-muted-foreground">
               Total revenue today
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* NEW: Credit Sales Given Today Card */}
+        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 col-span-2 md:col-span-1">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+            <CardTitle className="text-xs sm:text-sm font-medium">Credit Sales Today</CardTitle>
+            <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-orange-600" />
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-lg sm:text-2xl font-bold text-orange-700">
+              {formatCurrency(stats.todayCreditSales)}
+            </div>
+            <p className="text-xs text-orange-600">
+              Amount given on credit
             </p>
           </CardContent>
         </Card>
@@ -319,7 +338,7 @@ export default function Dashboard() {
           <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm">
             <p className="text-gray-700">
               <strong>Note:</strong> This chart shows total revenue and net profit for each month. 
-              Profit is calculated as Revenue minus Cost of Goods Sold. Data shows the last 12 months.
+              Profit is calculated from each sale's gross profit (selling prices - buying prices). Data shows the last 12 months.
             </p>
           </div>
         </CardContent>
@@ -453,6 +472,7 @@ export default function Dashboard() {
         </Card>
       )}
 
+      {/* Rest of dialogs remain the same... */}
       {/* Reset Analytics Confirmation Dialog */}
       <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <DialogContent>
@@ -536,7 +556,7 @@ export default function Dashboard() {
           </DialogHeader>
           
           <div className="space-y-4">
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-2 sm:gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 sm:gap-4">
               <Card>
                 <CardContent className="p-3 sm:p-6">
                   <div className="text-xs sm:text-sm text-gray-600">Total Sales</div>
@@ -547,6 +567,12 @@ export default function Dashboard() {
                 <CardContent className="p-3 sm:p-6">
                   <div className="text-xs sm:text-sm text-gray-600">Total Revenue</div>
                   <div className="text-lg sm:text-2xl font-bold">{formatCurrency(stats.todayRevenue)}</div>
+                </CardContent>
+              </Card>
+              <Card className="bg-orange-50">
+                <CardContent className="p-3 sm:p-6">
+                  <div className="text-xs sm:text-sm text-gray-600">Credit Given</div>
+                  <div className="text-lg sm:text-2xl font-bold text-orange-600">{formatCurrency(stats.todayCreditSales)}</div>
                 </CardContent>
               </Card>
               <Card className="col-span-2 md:col-span-1">

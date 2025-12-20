@@ -1,4 +1,4 @@
-// client/src/pages/Reports.jsx
+// client/src/pages/Reports.jsx - WITH DOWNLOAD FUNCTIONALITY
 
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
@@ -14,12 +14,19 @@ import {
   TableHeader, 
   TableRow
 } from '../components/ui/table';
-import { FileText, Download, Calendar,AlertCircle } from 'lucide-react';
+import { FileText, Download, Calendar, AlertCircle } from 'lucide-react';
 import { reportService } from '../services/report.service';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { BarChart, Bar, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import CloseOfBusinessDialog from '../components/reports/CloseOfBusinessDialog';
 import { dailyReportService } from '../services/dailyReport.service';
+import { 
+  downloadDailySalesReportPDF, 
+  downloadSalesCSV,
+  downloadProductPerformancePDF,
+  downloadCashFlowPDF,
+  downloadBalanceSheetPDF
+} from '../utils/reportDownload';
 
 export default function Reports() {
   const [dateRange, setDateRange] = useState({
@@ -32,7 +39,7 @@ export default function Reports() {
   const [cashFlow, setCashFlow] = useState(null);
   const [loading, setLoading] = useState(false);
   const [dailyReports, setDailyReports] = useState([]);
-const [showCloseBusinessDialog, setShowCloseBusinessDialog] = useState(false);
+  const [showCloseBusinessDialog, setShowCloseBusinessDialog] = useState(false);
 
   const fetchSalesReport = async () => {
     try {
@@ -46,21 +53,20 @@ const [showCloseBusinessDialog, setShowCloseBusinessDialog] = useState(false);
     }
   };
 
-  // Add fetch function
-const fetchDailyReports = async () => {
-  try {
-    setLoading(true);
-    const response = await dailyReportService.getAll({
-      startDate: dateRange.startDate,
-      endDate: dateRange.endDate
-    });
-    setDailyReports(response.data);
-  } catch (error) {
-    console.error('Error fetching daily reports:', error);
-  } finally {
-    setLoading(false);
-  }
-};
+  const fetchDailyReports = async () => {
+    try {
+      setLoading(true);
+      const response = await dailyReportService.getAll({
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate
+      });
+      setDailyReports(response.data);
+    } catch (error) {
+      console.error('Error fetching daily reports:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchBalanceSheet = async () => {
     try {
@@ -159,14 +165,34 @@ const fetchDailyReports = async () => {
         <TabsContent value="sales" className="space-y-4">
           {salesReport ? (
             <>
-              {/* Summary Cards */}
+              {/* Summary Cards with Download Button */}
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">Sales Summary</h2>
+                <div className="flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => downloadDailySalesReportPDF(salesReport.data)}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Download PDF
+                  </Button>
+                  <Button 
+                    variant="outline" 
+                    onClick={() => downloadSalesCSV(salesReport.data.sales)}
+                  >
+                    <Download className="mr-2 h-4 w-4" />
+                    Export CSV
+                  </Button>
+                </div>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-4">
                 <Card>
                   <CardHeader className="pb-2">
                     <CardTitle className="text-sm font-medium">Total Sales</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{salesReport.summary.totalSales}</div>
+                    <div className="text-2xl font-bold">{salesReport.data.summary.totalSales}</div>
                   </CardContent>
                 </Card>
 
@@ -175,7 +201,7 @@ const fetchDailyReports = async () => {
                     <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{formatCurrency(salesReport.summary.totalRevenue)}</div>
+                    <div className="text-2xl font-bold">{formatCurrency(salesReport.data.summary.totalRevenue)}</div>
                   </CardContent>
                 </Card>
 
@@ -185,7 +211,7 @@ const fetchDailyReports = async () => {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-green-600">
-                      {formatCurrency(salesReport.summary.grossProfit)}
+                      {formatCurrency(salesReport.data.summary.grossProfit)}
                     </div>
                   </CardContent>
                 </Card>
@@ -195,7 +221,7 @@ const fetchDailyReports = async () => {
                     <CardTitle className="text-sm font-medium">Profit Margin</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{salesReport.summary.profitMargin}</div>
+                    <div className="text-2xl font-bold">{salesReport.data.summary.profitMargin}</div>
                   </CardContent>
                 </Card>
               </div>
@@ -210,9 +236,9 @@ const fetchDailyReports = async () => {
                     <PieChart>
                       <Pie
                         data={[
-                          { name: 'Cash', value: salesReport.paymentBreakdown.cash },
-                          { name: 'M-Pesa', value: salesReport.paymentBreakdown.mpesa },
-                          { name: 'Credit', value: salesReport.paymentBreakdown.credit }
+                          { name: 'Cash', value: salesReport.data.paymentBreakdown.cash },
+                          { name: 'M-Pesa', value: salesReport.data.paymentBreakdown.mpesa },
+                          { name: 'Credit', value: salesReport.data.paymentBreakdown.credit }
                         ]}
                         cx="50%"
                         cy="50%"
@@ -246,16 +272,20 @@ const fetchDailyReports = async () => {
                         <TableHead>Customer</TableHead>
                         <TableHead>Payment Method</TableHead>
                         <TableHead>Amount</TableHead>
+                        <TableHead>Profit</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {salesReport.sales.map((sale) => (
+                      {salesReport.data.sales.map((sale) => (
                         <TableRow key={sale._id}>
                           <TableCell>{sale.saleNumber}</TableCell>
                           <TableCell>{formatDate(sale.saleDate)}</TableCell>
                           <TableCell>{sale.customerName || 'Walk-in'}</TableCell>
-                          <TableCell className="capitalize">{sale.paymentMethod}</TableCell>
+                          <TableCell className="capitalize">{sale.paymentMethod.replace('_', ' ')}</TableCell>
                           <TableCell>{formatCurrency(sale.total)}</TableCell>
+                          <TableCell className="text-green-600 font-semibold">
+                            {formatCurrency(sale.grossProfit || 0)}
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -276,13 +306,24 @@ const fetchDailyReports = async () => {
         <TabsContent value="products" className="space-y-4">
           {productPerformance ? (
             <>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">Product Performance</h2>
+                <Button 
+                  variant="outline" 
+                  onClick={() => downloadProductPerformancePDF(productPerformance.data)}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download PDF
+                </Button>
+              </div>
+
               <Card>
                 <CardHeader>
                   <CardTitle>Top Selling Products</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={productPerformance.topProducts}>
+                    <BarChart data={productPerformance.data.topProducts}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="productName" />
                       <YAxis />
@@ -312,7 +353,7 @@ const fetchDailyReports = async () => {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {productPerformance.topProducts.map((product, index) => (
+                      {productPerformance.data.topProducts.map((product, index) => (
                         <TableRow key={index}>
                           <TableCell className="font-medium">{product.productName}</TableCell>
                           <TableCell>{product.quantitySold}</TableCell>
@@ -337,6 +378,17 @@ const fetchDailyReports = async () => {
         <TabsContent value="cashflow" className="space-y-4">
           {cashFlow ? (
             <>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-semibold">Cash Flow Report</h2>
+                <Button 
+                  variant="outline" 
+                  onClick={() => downloadCashFlowPDF(cashFlow.data)}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download PDF
+                </Button>
+              </div>
+
               <div className="grid gap-4 md:grid-cols-4">
                 <Card>
                   <CardHeader className="pb-2">
@@ -344,7 +396,7 @@ const fetchDailyReports = async () => {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-green-600">
-                      {formatCurrency(cashFlow.totalInflow)}
+                      {formatCurrency(cashFlow.data.totalInflow)}
                     </div>
                   </CardContent>
                 </Card>
@@ -354,7 +406,7 @@ const fetchDailyReports = async () => {
                     <CardTitle className="text-sm font-medium">Cash</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{formatCurrency(cashFlow.cashIn)}</div>
+                    <div className="text-2xl font-bold">{formatCurrency(cashFlow.data.cashIn)}</div>
                   </CardContent>
                 </Card>
 
@@ -363,7 +415,7 @@ const fetchDailyReports = async () => {
                     <CardTitle className="text-sm font-medium">M-Pesa</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-2xl font-bold">{formatCurrency(cashFlow.mpesaIn)}</div>
+                    <div className="text-2xl font-bold">{formatCurrency(cashFlow.data.mpesaIn)}</div>
                   </CardContent>
                 </Card>
 
@@ -373,7 +425,7 @@ const fetchDailyReports = async () => {
                   </CardHeader>
                   <CardContent>
                     <div className="text-2xl font-bold text-red-600">
-                      {formatCurrency(cashFlow.cashOut)}
+                      {formatCurrency(cashFlow.data.cashOut)}
                     </div>
                   </CardContent>
                 </Card>
@@ -385,9 +437,9 @@ const fetchDailyReports = async () => {
                 </CardHeader>
                 <CardContent>
                   <div className="text-center">
-                    <p className="text-sm text-gray-600 mb-2">Period: {formatDate(cashFlow.period.start)} - {formatDate(cashFlow.period.end)}</p>
-                    <div className={`text-4xl font-bold ${cashFlow.netCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {formatCurrency(cashFlow.netCashFlow)}
+                    <p className="text-sm text-gray-600 mb-2">Period: {formatDate(cashFlow.data.period.start)} - {formatDate(cashFlow.data.period.end)}</p>
+                    <div className={`text-4xl font-bold ${cashFlow.data.netCashFlow >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatCurrency(cashFlow.data.netCashFlow)}
                     </div>
                   </div>
                 </CardContent>
@@ -404,10 +456,24 @@ const fetchDailyReports = async () => {
 
         {/* Balance Sheet Tab */}
         <TabsContent value="balance" className="space-y-4">
-          <Button onClick={fetchBalanceSheet} disabled={loading}>
-            <FileText className="mr-2 h-4 w-4" />
-            Generate Balance Sheet
-          </Button>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-semibold">Balance Sheet</h2>
+            <div className="flex gap-2">
+              <Button onClick={fetchBalanceSheet} disabled={loading}>
+                <FileText className="mr-2 h-4 w-4" />
+                Generate Balance Sheet
+              </Button>
+              {balanceSheet && (
+                <Button 
+                  variant="outline" 
+                  onClick={() => downloadBalanceSheetPDF(balanceSheet.data)}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Download PDF
+                </Button>
+              )}
+            </div>
+          </div>
 
           {balanceSheet && (
             <div className="grid gap-4 md:grid-cols-2">
@@ -422,22 +488,22 @@ const fetchDailyReports = async () => {
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span>Cash in Hand:</span>
-                        <span className="font-medium">{formatCurrency(balanceSheet.assets.currentAssets.cashInHand)}</span>
+                        <span className="font-medium">{formatCurrency(balanceSheet.data.assets.currentAssets.cashInHand)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Accounts Receivable:</span>
-                        <span className="font-medium">{formatCurrency(balanceSheet.assets.currentAssets.accountsReceivable)}</span>
+                        <span className="font-medium">{formatCurrency(balanceSheet.data.assets.currentAssets.accountsReceivable)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Inventory:</span>
-                        <span className="font-medium">{formatCurrency(balanceSheet.assets.currentAssets.inventory)}</span>
+                        <span className="font-medium">{formatCurrency(balanceSheet.data.assets.currentAssets.inventory)}</span>
                       </div>
                     </div>
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between font-bold text-lg">
                       <span>Total Assets:</span>
-                      <span>{formatCurrency(balanceSheet.assets.totalAssets)}</span>
+                      <span>{formatCurrency(balanceSheet.data.assets.totalAssets)}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -454,26 +520,26 @@ const fetchDailyReports = async () => {
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span>Accounts Payable:</span>
-                        <span className="font-medium">{formatCurrency(balanceSheet.liabilities.currentLiabilities.accountsPayable)}</span>
+                        <span className="font-medium">{formatCurrency(balanceSheet.data.liabilities.currentLiabilities.accountsPayable)}</span>
                       </div>
                     </div>
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between">
                       <span className="font-semibold">Total Liabilities:</span>
-                      <span className="font-medium">{formatCurrency(balanceSheet.liabilities.totalLiabilities)}</span>
+                      <span className="font-medium">{formatCurrency(balanceSheet.data.liabilities.totalLiabilities)}</span>
                     </div>
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between">
                       <span className="font-semibold">Owner's Equity:</span>
-                      <span className="font-medium">{formatCurrency(balanceSheet.equity.ownersEquity)}</span>
+                      <span className="font-medium">{formatCurrency(balanceSheet.data.equity.ownersEquity)}</span>
                     </div>
                   </div>
                   <div className="border-t pt-3">
                     <div className="flex justify-between font-bold text-lg">
                       <span>Total Liabilities & Equity:</span>
-                      <span>{formatCurrency(balanceSheet.totalLiabilitiesAndEquity)}</span>
+                      <span>{formatCurrency(balanceSheet.data.totalLiabilitiesAndEquity)}</span>
                     </div>
                   </div>
                 </CardContent>
@@ -481,6 +547,7 @@ const fetchDailyReports = async () => {
             </div>
           )}
         </TabsContent>
+
         {/* Daily Reports tab */}
         <TabsContent value="daily" className="space-y-4">
           <div className="flex justify-between items-center">

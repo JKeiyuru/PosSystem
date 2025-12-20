@@ -1,4 +1,4 @@
-// client/src/components/reports/CloseOfBusinessDialog.jsx
+// client/src/components/reports/CloseOfBusinessDialog.jsx - FIXED with proper credit handling
 
 import { useState } from 'react';
 import { 
@@ -31,48 +31,60 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
   const [emailProgress, setEmailProgress] = useState(0);
   const [showPreview, setShowPreview] = useState(false);
 
- const handleCalculatePreview = async () => {
-  const openingCash = parseFloat(formData.openingCash) || 0;
-  const actualCash = parseFloat(formData.actualCash) || 0;
-  const totalExpenses = parseFloat(formData.totalExpenses) || 0;
+  const handleCalculatePreview = async () => {
+    // Allow zero or positive values for opening cash
+    const openingCash = parseFloat(formData.openingCash);
+    const actualCash = parseFloat(formData.actualCash);
+    const totalExpenses = parseFloat(formData.totalExpenses) || 0;
 
-  if (!openingCash || !actualCash) {
-    alert('Please enter opening cash and actual cash');
-    return;
-  }
+    // Validate inputs (allow 0)
+    if (isNaN(openingCash) || openingCash < 0) {
+      alert('Please enter a valid opening cash amount (0 or greater)');
+      return;
+    }
 
-  try {
-    setLoading(true);
+    if (isNaN(actualCash) || actualCash < 0) {
+      alert('Please enter a valid actual cash amount');
+      return;
+    }
 
-    const today = new Date().toISOString().split('T')[0];
-    const salesResponse = await api.get('/sales/daily', { params: { date: today } });
-    const summary = salesResponse.data.data.summary;
+    try {
+      setLoading(true);
 
-    // Expected cash = Opening + Cash Sales ONLY - Expenses
-    // M-Pesa is NOT included
-    const expectedCash = openingCash + summary.totalCash - totalExpenses;
-    const variance = actualCash - expectedCash;
+      const today = new Date().toISOString().split('T')[0];
+      const salesResponse = await api.get('/sales/daily', { params: { date: today } });
+      const summary = salesResponse.data.data.summary;
 
-    setPreview({
-      openingCash,
-      cashSales: summary.totalCash,
-      mpesaSales: summary.totalMpesa,
-      totalExpenses,
-      expectedCash,
-      actualCash,
-      variance,
-      salesCount: summary.salesCount,
-      totalRevenue: summary.totalSales
-    });
+      // Get credit sales amount (NOT counted as cash received today)
+      const creditSalesAmount = summary.totalCredit || 0;
 
-    setShowPreview(true);
-  } catch (error) {
-    console.error('Error calculating preview:', error);
-    alert('Error calculating preview: ' + error.message);
-  } finally {
-    setLoading(false);
-  }
-};
+      // Expected cash = Opening + Cash Sales ONLY - Expenses
+      // M-Pesa is digital, not physical cash
+      const expectedCash = openingCash + summary.totalCash - totalExpenses;
+      const variance = actualCash - expectedCash;
+
+      setPreview({
+        openingCash,
+        cashSales: summary.totalCash,
+        mpesaSales: summary.totalMpesa,
+        creditSalesAmount, // NEW: Show credit sales separately
+        totalExpenses,
+        expectedCash,
+        actualCash,
+        variance,
+        salesCount: summary.salesCount,
+        totalRevenue: summary.totalSales,
+        creditPaymentsCollected: summary.creditPaymentsToday || 0
+      });
+
+      setShowPreview(true);
+    } catch (error) {
+      console.error('Error calculating preview:', error);
+      alert('Error calculating preview: ' + error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async () => {
     if (!preview) {
@@ -95,11 +107,9 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
 
         const response = await dailyReportService.create(reportData);
         
-        // Send email with progress
         setSendingEmail(true);
         setEmailProgress(0);
 
-        // Simulate progress
         const progressInterval = setInterval(() => {
           setEmailProgress(prev => {
             if (prev >= 90) {
@@ -175,11 +185,13 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                     id="openingCash"
                     type="number"
                     step="0.01"
+                    min="0"
                     placeholder="0.00"
                     value={formData.openingCash}
                     onChange={(e) => setFormData({...formData, openingCash: e.target.value})}
                     required
                   />
+                  <p className="text-xs text-gray-500">Can be 0 if starting fresh</p>
                 </div>
 
                 <div className="space-y-2">
@@ -188,6 +200,7 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                     id="actualCash"
                     type="number"
                     step="0.01"
+                    min="0"
                     placeholder="0.00"
                     value={formData.actualCash}
                     onChange={(e) => setFormData({...formData, actualCash: e.target.value})}
@@ -201,6 +214,7 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                     id="totalExpenses"
                     type="number"
                     step="0.01"
+                    min="0"
                     placeholder="0.00"
                     value={formData.totalExpenses}
                     onChange={(e) => setFormData({...formData, totalExpenses: e.target.value})}
@@ -241,39 +255,54 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
               <div className="space-y-4">
                 <h3 className="font-semibold text-lg">Daily Checks & Balances Preview</h3>
 
-                / Update the preview display to show M-Pesa separately
-<div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
-  <div>
-    <p className="text-sm text-gray-600">Opening Cash</p>
-    <p className="text-lg font-semibold">{formatCurrency(preview.openingCash)}</p>
-  </div>
-  <div>
-    <p className="text-sm text-gray-600">Cash Sales</p>
-    <p className="text-lg font-semibold text-green-600">+{formatCurrency(preview.cashSales)}</p>
-  </div>
-  <div>
-    <p className="text-sm text-gray-600">M-Pesa Sales (Not Cash)</p>
-    <p className="text-lg font-semibold text-purple-600">+{formatCurrency(preview.mpesaSales)}</p>
-  </div>
-  <div>
-    <p className="text-sm text-gray-600">Expenses</p>
-    <p className="text-lg font-semibold text-red-600">-{formatCurrency(preview.totalExpenses)}</p>
-  </div>
-</div>
+                <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                  <div>
+                    <p className="text-sm text-gray-600">Opening Cash</p>
+                    <p className="text-lg font-semibold">{formatCurrency(preview.openingCash)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Cash Sales</p>
+                    <p className="text-lg font-semibold text-green-600">+{formatCurrency(preview.cashSales)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Expenses</p>
+                    <p className="text-lg font-semibold text-red-600">-{formatCurrency(preview.totalExpenses)}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-gray-600">Credit Payments Collected</p>
+                    <p className="text-lg font-semibold text-blue-600">+{formatCurrency(preview.creditPaymentsCollected)}</p>
+                  </div>
+                </div>
 
-<div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
-  <p className="text-xs text-gray-600 mb-2">Note: M-Pesa is not counted in expected cash as it's digital payment</p>
-  <div className="grid grid-cols-2 gap-4">
-    <div>
-      <p className="text-sm text-gray-600">Expected Cash</p>
-      <p className="text-xl font-bold">{formatCurrency(preview.expectedCash)}</p>
-    </div>
-    <div>
-      <p className="text-sm text-gray-600">Actual Cash</p>
-      <p className="text-xl font-bold">{formatCurrency(preview.actualCash)}</p>
-    </div>
-  </div>
-</div>
+                <div className="p-4 bg-purple-50 rounded-lg border-2 border-purple-200">
+                  <p className="text-xs text-gray-600 mb-2">Digital Payments (Not Physical Cash)</p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-600">M-Pesa Sales</p>
+                      <p className="text-lg font-bold text-purple-600">{formatCurrency(preview.mpesaSales)}</p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Credit Sales Today</p>
+                      <p className="text-lg font-bold text-orange-600">{formatCurrency(preview.creditSalesAmount)}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-600">Expected Cash</p>
+                      <p className="text-xl font-bold">{formatCurrency(preview.expectedCash)}</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Opening + Cash Sales - Expenses
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-gray-600">Actual Cash</p>
+                      <p className="text-xl font-bold">{formatCurrency(preview.actualCash)}</p>
+                    </div>
+                  </div>
+                </div>
 
                 <div className={`p-4 rounded-lg border-2 ${preview.variance >= 0 ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
                   <div className="text-center">
@@ -289,14 +318,21 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
 
                 <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
                   <div>
-                    <p className="text-sm text-gray-600">Total Sales</p>
+                    <p className="text-sm text-gray-600">Total Sales Count</p>
                     <p className="text-lg font-semibold">{preview.salesCount}</p>
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600">Total Revenue</p>
+                    <p className="text-sm text-gray-600">Total Revenue (All Methods)</p>
                     <p className="text-lg font-semibold">{formatCurrency(preview.totalRevenue)}</p>
                   </div>
                 </div>
+
+                <Alert className="bg-blue-50 border-blue-200">
+                  <AlertDescription className="text-sm">
+                    <strong>Note:</strong> Credit sales are shown separately because they don't represent cash received today. 
+                    When customers pay their debts later, those payments will be counted as revenue on that future date.
+                  </AlertDescription>
+                </Alert>
 
                 {sendingEmail && (
                   <div className="space-y-2">
