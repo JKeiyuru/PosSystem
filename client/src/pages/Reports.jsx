@@ -1,6 +1,6 @@
 // client/src/pages/Reports.jsx - WITH DOWNLOAD FUNCTIONALITY
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react'; // Added useEffect
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -40,12 +40,22 @@ export default function Reports() {
   const [loading, setLoading] = useState(false);
   const [dailyReports, setDailyReports] = useState([]);
   const [showCloseBusinessDialog, setShowCloseBusinessDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState('sales'); // Track active tab
+
+  // Debug useEffect to log state changes
+  useEffect(() => {
+    console.log('Sales Report State:', salesReport);
+    console.log('Cash Flow State:', cashFlow);
+    console.log('Product Performance State:', productPerformance);
+  }, [salesReport, cashFlow, productPerformance]);
 
   const fetchSalesReport = async () => {
     try {
       setLoading(true);
+      console.log('Fetching sales report...');
       const response = await reportService.getDailySales(dateRange.startDate, dateRange.endDate);
-      setSalesReport(response.data);
+      console.log('Sales API Response:', response);
+      setSalesReport(response);
     } catch (error) {
       console.error('Error fetching sales report:', error);
     } finally {
@@ -72,7 +82,7 @@ export default function Reports() {
     try {
       setLoading(true);
       const response = await reportService.getBalanceSheet();
-      setBalanceSheet(response.data);
+      setBalanceSheet(response);
     } catch (error) {
       console.error('Error fetching balance sheet:', error);
     } finally {
@@ -83,8 +93,10 @@ export default function Reports() {
   const fetchProductPerformance = async () => {
     try {
       setLoading(true);
+      console.log('Fetching product performance...');
       const response = await reportService.getProductPerformance(dateRange.startDate, dateRange.endDate);
-      setProductPerformance(response.data);
+      console.log('Product Performance API Response:', response);
+      setProductPerformance(response);
     } catch (error) {
       console.error('Error fetching product performance:', error);
     } finally {
@@ -95,14 +107,25 @@ export default function Reports() {
   const fetchCashFlow = async () => {
     try {
       setLoading(true);
+      console.log('Fetching cash flow...');
       const response = await reportService.getCashFlow(dateRange.startDate, dateRange.endDate);
-      console.log('Cash Flow Response:', response); // Debug log
-      setCashFlow(response.data);
+      console.log('Cash Flow API Response:', response);
+      setCashFlow(response);
     } catch (error) {
       console.error('Error fetching cash flow:', error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGenerateReports = async () => {
+    console.log('Generating all reports...');
+    await Promise.all([
+      fetchSalesReport(),
+      fetchProductPerformance(),
+      fetchCashFlow()
+    ]);
+    console.log('All reports generated');
   };
 
   const COLORS = ['#2563eb', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6'];
@@ -141,11 +164,7 @@ export default function Reports() {
             <div className="flex items-end">
               <Button 
                 className="w-full" 
-                onClick={() => {
-                  fetchSalesReport();
-                  fetchProductPerformance();
-                  fetchCashFlow();
-                }}
+                onClick={handleGenerateReports}
                 disabled={loading}
               >
                 <Calendar className="mr-2 h-4 w-4" />
@@ -157,7 +176,7 @@ export default function Reports() {
       </Card>
 
       {/* Reports Tabs */}
-      <Tabs defaultValue="sales" className="space-y-4">
+      <Tabs defaultValue="sales" value={activeTab} onValueChange={setActiveTab} className="space-y-4">
         <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="sales">Sales Report</TabsTrigger>
           <TabsTrigger value="products">Product Performance</TabsTrigger>
@@ -301,7 +320,9 @@ export default function Reports() {
           ) : (
             <Card>
               <CardContent className="pt-6">
-                <p className="text-center text-gray-500">Click "Generate Reports" to view sales data</p>
+                <p className="text-center text-gray-500">
+                  {loading ? 'Loading sales report...' : 'Click "Generate Reports" to view sales data'}
+                </p>
               </CardContent>
             </Card>
           )}
@@ -373,7 +394,9 @@ export default function Reports() {
           ) : (
             <Card>
               <CardContent className="pt-6">
-                <p className="text-center text-gray-500">Click "Generate Reports" to view product performance</p>
+                <p className="text-center text-gray-500">
+                  {loading ? 'Loading product performance...' : 'Click "Generate Reports" to view product performance'}
+                </p>
               </CardContent>
             </Card>
           )}
@@ -455,7 +478,9 @@ export default function Reports() {
           ) : (
             <Card>
               <CardContent className="pt-6">
-                <p className="text-center text-gray-500">Click "Generate Reports" to view cash flow</p>
+                <p className="text-center text-gray-500">
+                  {loading ? 'Loading cash flow...' : 'Click "Generate Reports" to view cash flow'}
+                </p>
               </CardContent>
             </Card>
           )}
@@ -468,7 +493,7 @@ export default function Reports() {
             <div className="flex gap-2">
               <Button onClick={fetchBalanceSheet} disabled={loading}>
                 <FileText className="mr-2 h-4 w-4" />
-                Generate Balance Sheet
+                {loading ? 'Generating...' : 'Generate Balance Sheet'}
               </Button>
               {balanceSheet?.data && (
                 <Button 
@@ -555,7 +580,9 @@ export default function Reports() {
           ) : (
             <Card>
               <CardContent className="pt-6">
-                <p className="text-center text-gray-500">Click "Generate Balance Sheet" to view balance sheet data</p>
+                <p className="text-center text-gray-500">
+                  {loading ? 'Loading balance sheet...' : 'Click "Generate Balance Sheet" to view balance sheet data'}
+                </p>
               </CardContent>
             </Card>
           )}
