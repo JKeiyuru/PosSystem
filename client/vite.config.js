@@ -36,7 +36,6 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // Increased from 2MB to 3MB
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/api\./i,
@@ -67,24 +66,4 @@ export default defineConfig({
       },
     },
   },
-  // Updated: Simplified build configuration to prevent React splitting issues
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          // Group React and React DOM together - they should NEVER be separated
-          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          // Group UI libraries
-          'antd-vendor': ['antd', '@ant-design/icons'],
-          // Group charting libraries
-          'chart-vendor': ['recharts'],
-          // Group PDF libraries
-          'pdf-vendor': ['jspdf', 'jspdf-autotable'],
-          // Group utility libraries
-          'utils-vendor': ['dayjs', 'axios', 'lodash']
-        }
-      }
-    },
-    chunkSizeWarningLimit: 1000,
-  }
 })
