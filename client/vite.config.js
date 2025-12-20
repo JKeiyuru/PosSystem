@@ -1,5 +1,5 @@
 /* eslint-disable no-undef */
-// client/vite.config.js
+// client/vite.config.js - FIXED
 
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
@@ -36,8 +36,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
-        // ADDED: Fix for the original PWA cache size error
-        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024, // Increased from 2MB to 3MB
+        maximumFileSizeToCacheInBytes: 5 * 1024 * 1024, // 5MB
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/api\./i,
@@ -58,6 +57,8 @@ export default defineConfig({
     alias: {
       '@': path.resolve(__dirname, './src'),
     },
+    // ADDED: Dedupe React to prevent multiple versions
+    dedupe: ['react', 'react-dom']
   },
   server: {
     port: 5173,
@@ -68,8 +69,21 @@ export default defineConfig({
       },
     },
   },
-  // OPTIONAL: Add only if you still get chunk size warnings
   build: {
-    chunkSizeWarningLimit: 1500, // Increased from default 500KB
+    chunkSizeWarningLimit: 1500,
+    // ADDED: Better code splitting
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'chart-vendor': ['recharts'],
+          'ui-vendor': ['lucide-react'],
+        }
+      }
+    }
+  },
+  // ADDED: Optimize dependencies
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom']
   }
 })
