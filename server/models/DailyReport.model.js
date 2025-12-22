@@ -1,4 +1,4 @@
-// server/models/DailyReport.model.js
+// server/models/DailyReport.model.js - UPDATED
 
 import mongoose from 'mongoose';
 
@@ -53,6 +53,10 @@ const dailyReportSchema = new mongoose.Schema({
     default: 0
   },
   creditSales: {
+    type: Number,
+    default: 0
+  },
+  creditPaymentsCollected: {
     type: Number,
     default: 0
   },

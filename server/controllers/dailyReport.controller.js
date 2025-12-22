@@ -1,9 +1,8 @@
-// server/controllers/dailyReport.controller.js
+// server/controllers/dailyReport.controller.js - COMPLETELY FIXED
 
 import DailyReport from '../models/DailyReport.model.js';
 import Sale from '../models/Sale.model.js';
-
-// server/controllers/dailyReport.controller.js - Update createDailyReport
+import PaymentTransaction from '../models/PaymentTransaction.model.js';
 
 export const createDailyReport = async (req, res) => {
   try {
@@ -20,6 +19,7 @@ export const createDailyReport = async (req, res) => {
     const startOfDay = new Date(date.setHours(0, 0, 0, 0));
     const endOfDay = new Date(date.setHours(23, 59, 59, 999));
 
+    // Get all sales for the day
     const sales = await Sale.find({
       saleDate: {
         $gte: startOfDay,
@@ -27,25 +27,66 @@ export const createDailyReport = async (req, res) => {
       }
     });
 
-    const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
-    
-    // Only CASH sales contribute to expected cash
-    const cashSales = sales.filter(s => s.paymentMethod === 'cash')
+    // Get all payment transactions (credit payments) for the day
+    const payments = await PaymentTransaction.find({
+      createdAt: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+
+    console.log(`Found ${sales.length} sales and ${payments.length} payment transactions for the day`);
+
+    // Calculate CASH SALES (only sales paid with CASH method)
+    const cashSales = sales
+      .filter(s => s.paymentMethod === 'cash')
       .reduce((sum, s) => sum + s.amountPaid, 0);
     
-    // M-Pesa is separate - not counted as cash
-    const mpesaSales = sales.filter(s => s.paymentMethod === 'mpesa')
+    // Calculate cash from CREDIT PAYMENTS made today
+    const cashFromCreditPayments = payments
+      .filter(p => p.paymentMethod === 'cash')
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    // TOTAL CASH = Cash sales + Cash from credit payments
+    const totalCashReceived = cashSales + cashFromCreditPayments;
+
+    console.log('Cash Sales:', cashSales);
+    console.log('Cash from Credit Payments:', cashFromCreditPayments);
+    console.log('Total Cash Received:', totalCashReceived);
+
+    // Calculate M-Pesa sales (all M-Pesa payment methods combined)
+    const mpesaSales = sales
+      .filter(s => s.paymentMethod.includes('mpesa') || s.paymentMethod.includes('gdc'))
       .reduce((sum, s) => sum + s.amountPaid, 0);
     
-    const creditSales = sales.filter(s => s.paymentMethod === 'credit')
+    // M-Pesa from credit payments
+    const mpesaFromCreditPayments = payments
+      .filter(p => p.paymentMethod.includes('mpesa') || p.paymentMethod.includes('gdc'))
+      .reduce((sum, p) => sum + p.amount, 0);
+
+    const totalMpesa = mpesaSales + mpesaFromCreditPayments;
+
+    // Credit sales (amount given on credit today)
+    const creditSales = sales
+      .filter(s => s.paymentMethod === 'credit')
       .reduce((sum, s) => sum + s.total, 0);
 
-    // Expected cash = Opening Cash + Cash Sales ONLY - Expenses
-    // M-Pesa is NOT included in expected cash
-    const expectedCash = parseFloat(openingCash) + cashSales - parseFloat(totalExpenses);
+    // Total revenue = All sales + All credit payments collected today
+    const totalSalesAmount = sales.reduce((sum, s) => sum + s.total, 0);
+    const totalCreditPayments = payments.reduce((sum, p) => sum + p.amount, 0);
+    const totalRevenue = totalSalesAmount + totalCreditPayments;
+
+    // EXPECTED CASH = Opening Cash + Total Cash Received - Expenses
+    const expectedCash = parseFloat(openingCash) + totalCashReceived - parseFloat(totalExpenses);
     
+    // VARIANCE = Actual Cash - Expected Cash
     const variance = parseFloat(actualCash) - expectedCash;
 
+    console.log('Expected Cash Calculation:');
+    console.log(`Opening: ${openingCash} + Cash Received: ${totalCashReceived} - Expenses: ${totalExpenses} = ${expectedCash}`);
+    console.log(`Actual: ${actualCash}, Variance: ${variance}`);
+
+    // Check if report already exists
     const existingReport = await DailyReport.findOne({
       reportDate: {
         $gte: startOfDay,
@@ -60,6 +101,7 @@ export const createDailyReport = async (req, res) => {
       });
     }
 
+    // Create the daily report
     const dailyReport = await DailyReport.create({
       reportDate: new Date(reportDate),
       openingCash: parseFloat(openingCash),
@@ -70,9 +112,10 @@ export const createDailyReport = async (req, res) => {
       expensesNotes: expensesNotes || '',
       totalSales: sales.length,
       totalRevenue,
-      cashSales,
-      mpesaSales,
+      cashSales: totalCashReceived, // Total cash (sales + credit payments)
+      mpesaSales: totalMpesa,
       creditSales,
+      creditPaymentsCollected: totalCreditPayments,
       salesCount: sales.length,
       closedBy: req.user.id,
       closedByName: req.user.name,
@@ -85,6 +128,7 @@ export const createDailyReport = async (req, res) => {
       data: dailyReport
     });
   } catch (error) {
+    console.error('Error creating daily report:', error);
     res.status(500).json({
       success: false,
       message: error.message
@@ -144,18 +188,17 @@ export const getDailyReportById = async (req, res) => {
   }
 };
 
-
 export const sendDailyReportEmail = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const { sendDailyReportWithBalance } = await import('../utils/emailService.js');
-    const result = await sendDailyReportWithBalance(id);
+    const { sendComprehensiveDailyReport } = await import('../utils/emailService.js');
+    const result = await sendComprehensiveDailyReport(id);
     
     if (result.success) {
       res.json({
         success: true,
-        message: 'Email sent successfully'
+        message: 'Comprehensive daily report sent successfully'
       });
     } else {
       res.status(500).json({
@@ -164,6 +207,7 @@ export const sendDailyReportEmail = async (req, res) => {
       });
     }
   } catch (error) {
+    console.error('Error sending daily report:', error);
     res.status(500).json({
       success: false,
       message: error.message
