@@ -149,6 +149,20 @@ export const createSale = async (req, res) => {
       }
     }
 
+    // In createSale function, after getting customer data:
+if (customer) {
+  const customerDoc = await Customer.findById(customer).session(session);
+  if (customerDoc) {
+    // REMOVE ANY RESTRICTION ON CUSTOMERS WITH DEBT
+    // Customers can always make purchases regardless of existing debt
+    customerDoc.totalPurchases += total;
+    if (calculatedAmountDue > 0) {
+      customerDoc.currentCredit += calculatedAmountDue;
+    }
+    await customerDoc.save({ session });
+  }
+}
+
     // Create sale
     const sale = await Sale.create([{
       items: saleItems,
@@ -345,6 +359,9 @@ export const getSaleById = async (req, res) => {
   }
 };
 
+// server/controllers/sale.controller.js - FIXED REVENUE CALCULATION FOR CREDIT SALES
+// [Previous code remains the same until getDailySales function...]
+
 export const getDailySales = async (req, res) => {
   try {
     const { date } = req.query;
@@ -367,44 +384,48 @@ export const getDailySales = async (req, res) => {
       }
     });
 
-    // FIXED REVENUE CALCULATION
-    // Total Revenue = All sales totals (including credit sales) + Credit payments made today
-    let totalRevenue = 0;
+    // ====== FIXED REVENUE CALCULATION ======
+    // IMPORTANT CHANGE: Credit sales should NOT count as revenue until paid
     
-    // Add ALL sales (including credit) - this is total business done today
-    sales.forEach(sale => {
-      totalRevenue += sale.total;
-    });
-
-    // Add credit payments made today (these are additional cash collected from previous credit sales)
-    const creditPayments = payments.reduce((sum, pmt) => sum + pmt.amount, 0);
-    totalRevenue += creditPayments;
-
-    // Calculate by payment method
-    const totalCash = sales.filter(s => s.paymentMethod === 'cash')
-      .reduce((sum, sale) => sum + sale.amountPaid, 0) + 
-      payments.filter(p => p.paymentMethod === 'cash')
+    // Calculate REVENUE FROM PAID SALES only (excluding credit sales)
+    const revenueFromPaidSales = sales
+      .filter(s => s.paymentMethod !== 'credit') // Exclude credit sales
+      .reduce((sum, sale) => sum + sale.amountPaid, 0);
+    
+    // Add credit payments made today (these ARE revenue because they're collected cash)
+    const creditPaymentsCollected = payments.reduce((sum, pmt) => sum + pmt.amount, 0);
+    
+    // TOTAL REVENUE = Paid sales revenue + Credit payments collected
+    const totalRevenue = revenueFromPaidSales + creditPaymentsCollected;
+    
+    // Calculate cash sales (only cash payments from NON-CREDIT sales)
+    const cashSales = sales
+      .filter(s => s.paymentMethod === 'cash') // Only cash sales
+      .reduce((sum, sale) => sum + sale.amountPaid, 0);
+    
+    // Cash from credit payments made today
+    const cashFromCreditPayments = payments
+      .filter(p => p.paymentMethod === 'cash')
       .reduce((sum, pmt) => sum + pmt.amount, 0);
 
-    const totalMpesaPaybill = sales.filter(s => s.paymentMethod === 'mpesa_paybill')
-      .reduce((sum, sale) => sum + sale.amountPaid, 0) +
-      payments.filter(p => p.paymentMethod === 'mpesa_paybill')
+    // TOTAL CASH = Cash sales + Cash from credit payments
+    const totalCash = cashSales + cashFromCreditPayments;
+
+    // Calculate M-Pesa (all M-Pesa payment methods combined)
+    const mpesaSales = sales
+      .filter(s => s.paymentMethod.includes('mpesa') || s.paymentMethod.includes('gdc'))
+      .reduce((sum, sale) => sum + sale.amountPaid, 0);
+    
+    // M-Pesa from credit payments
+    const mpesaFromCreditPayments = payments
+      .filter(p => p.paymentMethod.includes('mpesa') || p.paymentMethod.includes('gdc'))
       .reduce((sum, pmt) => sum + pmt.amount, 0);
 
-    const totalMpesaBeth = sales.filter(s => s.paymentMethod === 'mpesa_beth')
-      .reduce((sum, sale) => sum + sale.amountPaid, 0) +
-      payments.filter(p => p.paymentMethod === 'mpesa_beth')
-      .reduce((sum, pmt) => sum + pmt.amount, 0);
+    const totalMpesa = mpesaSales + mpesaFromCreditPayments;
 
-    const totalMpesaMartin = sales.filter(s => s.paymentMethod === 'mpesa_martin')
-      .reduce((sum, sale) => sum + sale.amountPaid, 0) +
-      payments.filter(p => p.paymentMethod === 'mpesa_martin')
-      .reduce((sum, pmt) => sum + pmt.amount, 0);
-
-    const totalMpesa = totalMpesaPaybill + totalMpesaBeth + totalMpesaMartin;
-
-    // Credit sales (amount taken on credit, not yet paid)
-    const totalCredit = sales.filter(s => s.paymentMethod === 'credit')
+    // Credit sales (amount taken on credit today) - NOT REVENUE
+    const creditSales = sales
+      .filter(s => s.paymentMethod === 'credit')
       .reduce((sum, sale) => sum + sale.total, 0);
 
     res.json({
@@ -413,14 +434,23 @@ export const getDailySales = async (req, res) => {
         sales,
         payments,
         summary: {
-          totalSales: totalRevenue, // Total revenue (all sales + credit payments)
+          totalRevenue, // FIXED: Only includes actual collected money
           totalCash,
           totalMpesa,
-          totalMpesaPaybill,
-          totalMpesaBeth,
-          totalMpesaMartin,
-          totalCredit, // Amount given on credit today
-          creditPaymentsToday: creditPayments, // Credit collected today
+          totalMpesaPaybill: sales.filter(s => s.paymentMethod === 'mpesa_paybill')
+            .reduce((sum, sale) => sum + sale.amountPaid, 0) +
+            payments.filter(p => p.paymentMethod === 'mpesa_paybill')
+            .reduce((sum, pmt) => sum + pmt.amount, 0),
+          totalMpesaBeth: sales.filter(s => s.paymentMethod === 'mpesa_beth')
+            .reduce((sum, sale) => sum + sale.amountPaid, 0) +
+            payments.filter(p => p.paymentMethod === 'mpesa_beth')
+            .reduce((sum, pmt) => sum + pmt.amount, 0),
+          totalMpesaMartin: sales.filter(s => s.paymentMethod === 'mpesa_martin')
+            .reduce((sum, sale) => sum + sale.amountPaid, 0) +
+            payments.filter(p => p.paymentMethod === 'mpesa_martin')
+            .reduce((sum, pmt) => sum + pmt.amount, 0),
+          totalCredit: creditSales, // Amount given on credit today (not revenue)
+          creditPaymentsCollected: creditPaymentsCollected, // Credit collected today (is revenue)
           salesCount: sales.length,
           paymentsCount: payments.length
         }
