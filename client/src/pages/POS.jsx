@@ -233,9 +233,9 @@ export default function POS() {
     // ADDED: Check if credit payment without customer
     const hasCreditPayment = splitPayments.some(p => p.method === 'credit');
     if (hasCreditPayment && (!selectedCustomer || selectedCustomer === 'none')) {
-  alert('⚠️ Credit sales require a customer to be selected!\n\nPlease select a customer from the dropdown to track their credit.');
-  return;
-}
+      alert('⚠️ Credit sales require a customer to be selected!\n\nPlease select a customer from the dropdown before proceeding with a credit sale.');
+      return;
+    }
 
     if (validPayments.length === 0) {
       const hasCredit = splitPayments.some(p => p.method === 'credit');

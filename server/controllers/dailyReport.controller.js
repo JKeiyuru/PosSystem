@@ -4,9 +4,6 @@ import DailyReport from '../models/DailyReport.model.js';
 import Sale from '../models/Sale.model.js';
 import PaymentTransaction from '../models/PaymentTransaction.model.js';
 
-// server/controllers/dailyReport.controller.js - FIXED CASH CALCULATION
-// [Previous code remains the same until createDailyReport function...]
-
 export const createDailyReport = async (req, res) => {
   try {
     const { 
@@ -40,27 +37,26 @@ export const createDailyReport = async (req, res) => {
 
     console.log(`Found ${sales.length} sales and ${payments.length} payment transactions for the day`);
 
-    // ====== FIXED CALCULATION ======
-    // Calculate CASH SALES (only sales paid with CASH method AND NOT CREDIT)
+    // Calculate CASH SALES (only sales paid with CASH method)
     const cashSales = sales
-      .filter(s => s.paymentMethod === 'cash') // Only cash sales
+      .filter(s => s.paymentMethod === 'cash')
       .reduce((sum, s) => sum + s.amountPaid, 0);
     
-    // Calculate cash from CREDIT PAYMENTS made today (collected from old debts)
+    // Calculate cash from CREDIT PAYMENTS made today
     const cashFromCreditPayments = payments
       .filter(p => p.paymentMethod === 'cash')
       .reduce((sum, p) => sum + p.amount, 0);
 
-    // TOTAL CASH RECEIVED = Cash sales + Cash from credit payments
+    // TOTAL CASH = Cash sales + Cash from credit payments
     const totalCashReceived = cashSales + cashFromCreditPayments;
 
     console.log('Cash Sales:', cashSales);
     console.log('Cash from Credit Payments:', cashFromCreditPayments);
     console.log('Total Cash Received:', totalCashReceived);
 
-    // Calculate M-Pesa sales (all M-Pesa payment methods combined, excluding credit)
+    // Calculate M-Pesa sales (all M-Pesa payment methods combined)
     const mpesaSales = sales
-      .filter(s => (s.paymentMethod.includes('mpesa') || s.paymentMethod.includes('gdc')) && s.paymentMethod !== 'credit')
+      .filter(s => s.paymentMethod.includes('mpesa') || s.paymentMethod.includes('gdc'))
       .reduce((sum, s) => sum + s.amountPaid, 0);
     
     // M-Pesa from credit payments
@@ -70,36 +66,25 @@ export const createDailyReport = async (req, res) => {
 
     const totalMpesa = mpesaSales + mpesaFromCreditPayments;
 
-    // Credit sales (amount given on credit today) - NOT REVENUE!
+    // Credit sales (amount given on credit today)
     const creditSales = sales
       .filter(s => s.paymentMethod === 'credit')
       .reduce((sum, s) => sum + s.total, 0);
 
-    // ====== FIXED REVENUE CALCULATION ======
-    // Total revenue = All PAID sales (excluding credit) + All credit payments collected today
-    const totalPaidSales = sales
-      .filter(s => s.paymentMethod !== 'credit') // Exclude credit sales
-      .reduce((sum, s) => sum + s.amountPaid, 0);
-    
+    // Total revenue = All sales + All credit payments collected today
+    const totalSalesAmount = sales.reduce((sum, s) => sum + s.total, 0);
     const totalCreditPayments = payments.reduce((sum, p) => sum + p.amount, 0);
-    const totalRevenue = totalPaidSales + totalCreditPayments;
+    const totalRevenue = totalSalesAmount + totalCreditPayments;
 
-    // ====== FIXED EXPECTED CASH CALCULATION ======
     // EXPECTED CASH = Opening Cash + Total Cash Received - Expenses
     const expectedCash = parseFloat(openingCash) + totalCashReceived - parseFloat(totalExpenses);
     
     // VARIANCE = Actual Cash - Expected Cash
     const variance = parseFloat(actualCash) - expectedCash;
 
-    console.log('=== DAILY REPORT CALCULATION ===');
-    console.log(`Opening Cash: ${openingCash}`);
-    console.log(`Cash Sales (non-credit): ${cashSales}`);
-    console.log(`Cash from Credit Payments: ${cashFromCreditPayments}`);
-    console.log(`Total Cash Received: ${totalCashReceived}`);
-    console.log(`Total Expenses: ${totalExpenses}`);
-    console.log(`Expected Cash: ${expectedCash}`);
-    console.log(`Actual Cash: ${actualCash}`);
-    console.log(`Variance: ${variance}`);
+    console.log('Expected Cash Calculation:');
+    console.log(`Opening: ${openingCash} + Cash Received: ${totalCashReceived} - Expenses: ${totalExpenses} = ${expectedCash}`);
+    console.log(`Actual: ${actualCash}, Variance: ${variance}`);
 
     // Check if report already exists
     const existingReport = await DailyReport.findOne({
@@ -129,7 +114,7 @@ export const createDailyReport = async (req, res) => {
       totalRevenue,
       cashSales: totalCashReceived, // Total cash (sales + credit payments)
       mpesaSales: totalMpesa,
-      creditSales, // Amount given on credit today (for information only)
+      creditSales,
       creditPaymentsCollected: totalCreditPayments,
       salesCount: sales.length,
       closedBy: req.user.id,
