@@ -1,6 +1,7 @@
-// client/src/pages/Dashboard.jsx - FIXED with credit sales card and profit from sale records
+// client/src/pages/Dashboard.jsx - FIXED with proper credit sales display
 
 import { useState, useEffect } from 'react';
+import { useAuth } from '../hooks/useAuth';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '../components/ui/dialog';
@@ -34,11 +35,12 @@ import { Badge } from '../components/ui/badge';
 import api from '../services/api';
 
 export default function Dashboard() {
+  const { user } = useAuth();
   const [stats, setStats] = useState({
     todaySales: 0,
     todayRevenue: 0,
     todayDebtPayments: 0,
-    todayCreditSales: 0, // NEW: Credit given today
+    todayCreditSales: 0,
     lowStockCount: 0,
     stockValue: 0
   });
@@ -110,9 +112,9 @@ export default function Dashboard() {
 
       setStats({
         todaySales: todaySales.salesCount,
-        todayRevenue: todaySales.totalSales,
-        todayDebtPayments,
-        todayCreditSales: todaySales.totalCredit || 0, // NEW
+        todayRevenue: todaySales.totalSales, // This is actual revenue (cash + mpesa + credit payments)
+        todayDebtPayments: todaySales.creditPaymentsToday || 0,
+        todayCreditSales: todaySales.totalCredit || 0, // Credit given today (NOT revenue)
         lowStockCount: lowStockRes.data.length,
         stockValue: stockValueRes.data.stockValue
       });
@@ -194,7 +196,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Cards - NOW WITH CREDIT SALES CARD */}
+      {/* Stats Cards - UPDATED with proper separation */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
         <Card 
           className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
@@ -212,22 +214,22 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="col-span-2 md:col-span-1">
+        <Card className="col-span-2 md:col-span-1 bg-gradient-to-br from-green-50 to-green-100 border-green-200">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
             <CardTitle className="text-xs sm:text-sm font-medium">Today's Revenue</CardTitle>
-            <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+            <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
           </CardHeader>
           <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="text-lg sm:text-2xl font-bold">
+            <div className="text-lg sm:text-2xl font-bold text-green-700">
               {formatCurrency(stats.todayRevenue)}
             </div>
-            <p className="text-xs text-muted-foreground">
-              Total revenue today
+            <p className="text-xs text-green-600">
+              Cash + M-Pesa + Collections
             </p>
           </CardContent>
         </Card>
 
-        {/* NEW: Credit Sales Given Today Card */}
+        {/* Credit Sales Card - NOT counted as revenue */}
         <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 col-span-2 md:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
             <CardTitle className="text-xs sm:text-sm font-medium">Credit Sales Today</CardTitle>
@@ -238,22 +240,22 @@ export default function Dashboard() {
               {formatCurrency(stats.todayCreditSales)}
             </div>
             <p className="text-xs text-orange-600">
-              Amount given on credit
+              Given on credit (not revenue yet)
             </p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-green-50 to-green-100 border-green-200 col-span-2 md:col-span-1">
+        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 col-span-2 md:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-            <CardTitle className="text-xs sm:text-sm font-medium">Debt Payments</CardTitle>
-            <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
+            <CardTitle className="text-xs sm:text-sm font-medium">Credit Collections</CardTitle>
+            <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
           </CardHeader>
           <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="text-lg sm:text-2xl font-bold text-green-700">
+            <div className="text-lg sm:text-2xl font-bold text-blue-700">
               {formatCurrency(stats.todayDebtPayments)}
             </div>
-            <p className="text-xs text-green-600">
-              Credit collections today
+            <p className="text-xs text-blue-600">
+              Debt payments collected today
             </p>
           </CardContent>
         </Card>
@@ -289,6 +291,18 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Info Alert explaining revenue */}
+      <Alert className="bg-blue-50 border-blue-200">
+        <AlertTitle className="flex items-center text-blue-800">
+          <DollarSign className="h-4 w-4 mr-2" />
+          Revenue Calculation
+        </AlertTitle>
+        <AlertDescription className="text-blue-700 text-sm">
+          <strong>Today's Revenue</strong> includes only actual money received: Cash sales + M-Pesa sales + Credit payments collected. 
+          <strong className="ml-2">Credit Sales Today</strong> shows money given on credit (will be revenue when paid).
+        </AlertDescription>
+      </Alert>
 
       {/* Monthly Revenue & Net Profit Chart */}
       <Card>
@@ -472,7 +486,6 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Rest of dialogs remain the same... */}
       {/* Reset Analytics Confirmation Dialog */}
       <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
         <DialogContent>

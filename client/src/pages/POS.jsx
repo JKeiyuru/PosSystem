@@ -691,6 +691,21 @@ export default function POS() {
               </div>
             )}
 
+            {/* Credit Sale Warning */}
+{splitPayments.some(p => p.method === 'credit') && (
+  <Alert className="bg-orange-50 border-orange-200">
+    <AlertTriangle className="h-4 w-4 text-orange-600" />
+    <AlertDescription className="text-orange-800">
+      <strong>⚠️ Credit Sale Notice:</strong>
+      <ul className="list-disc list-inside mt-2 text-sm">
+        <li>This amount will NOT be counted as today's revenue</li>
+        <li>It will only be revenue when the customer pays</li>
+        <li>Ensure customer is selected and has sufficient credit limit</li>
+      </ul>
+    </AlertDescription>
+  </Alert>
+)}
+
             <div className="p-4 bg-blue-50 rounded-lg space-y-2">
               <div className="flex justify-between">
                 <span>Total Paid:</span>

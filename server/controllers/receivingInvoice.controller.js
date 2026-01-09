@@ -1,7 +1,8 @@
-// server/controllers/receivingInvoice.controller.js - UPDATED
+// server/controllers/receivingInvoice.controller.js - WITH DELETE ITEM FUNCTIONALITY
 
 import ReceivingInvoice from '../models/ReceivingInvoice.model.js';
 import Product from '../models/Product.model.js';
+import mongoose from 'mongoose';
 
 export const createReceivingInvoice = async (req, res) => {
   try {
@@ -266,5 +267,79 @@ export const updatePaymentStatus = async (req, res) => {
       success: false,
       message: error.message
     });
+  }
+};
+
+// NEW: Delete item from receiving invoice
+export const deleteInvoiceItem = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { invoiceId, itemId } = req.params;
+
+    const invoice = await ReceivingInvoice.findById(invoiceId).session(session);
+
+    if (!invoice) {
+      throw new Error('Invoice not found');
+    }
+
+    // Find the item to delete
+    const itemIndex = invoice.items.findIndex(item => item._id.toString() === itemId);
+
+    if (itemIndex === -1) {
+      throw new Error('Item not found in invoice');
+    }
+
+    const itemToDelete = invoice.items[itemIndex];
+
+    // Reverse the stock addition
+    const product = await Product.findById(itemToDelete.product).session(session);
+    if (product) {
+      product.quantity -= itemToDelete.quantity;
+      // Optionally revert price change if needed
+      // product.buyingPrice = itemToDelete.previousBuyingPrice;
+      await product.save({ session });
+    }
+
+    // Remove item from array
+    invoice.items.splice(itemIndex, 1);
+
+    // Recalculate totals
+    invoice.calculatedTotal = invoice.items.reduce((sum, item) => sum + item.itemTotal, 0);
+    invoice.variance = invoice.actualInvoiceAmount - invoice.calculatedTotal;
+
+    // If no items left, optionally delete the invoice or mark as invalid
+    if (invoice.items.length === 0) {
+      await ReceivingInvoice.findByIdAndDelete(invoiceId).session(session);
+      await session.commitTransaction();
+      
+      return res.json({
+        success: true,
+        message: 'Last item removed. Invoice deleted.',
+        invoiceDeleted: true
+      });
+    }
+
+    await invoice.save({ session });
+    await session.commitTransaction();
+
+    const populatedInvoice = await ReceivingInvoice.findById(invoiceId)
+      .populate('items.product')
+      .populate('receivedBy', 'name email');
+
+    res.json({
+      success: true,
+      message: 'Item removed from invoice successfully',
+      data: populatedInvoice
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  } finally {
+    session.endSession();
   }
 };

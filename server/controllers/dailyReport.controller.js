@@ -37,12 +37,14 @@ export const createDailyReport = async (req, res) => {
 
     console.log(`Found ${sales.length} sales and ${payments.length} payment transactions for the day`);
 
-    // Calculate CASH SALES (only sales paid with CASH method)
+    // CRITICAL FIX: Only count CASH and M-PESA sales, NOT credit sales
+    
+    // 1. Cash from direct CASH sales
     const cashSales = sales
       .filter(s => s.paymentMethod === 'cash')
       .reduce((sum, s) => sum + s.amountPaid, 0);
     
-    // Calculate cash from CREDIT PAYMENTS made today
+    // 2. Cash from CREDIT PAYMENTS made today
     const cashFromCreditPayments = payments
       .filter(p => p.paymentMethod === 'cash')
       .reduce((sum, p) => sum + p.amount, 0);
@@ -50,9 +52,10 @@ export const createDailyReport = async (req, res) => {
     // TOTAL CASH = Cash sales + Cash from credit payments
     const totalCashReceived = cashSales + cashFromCreditPayments;
 
-    console.log('Cash Sales:', cashSales);
-    console.log('Cash from Credit Payments:', cashFromCreditPayments);
-    console.log('Total Cash Received:', totalCashReceived);
+    console.log('Cash Calculation:');
+    console.log('  Cash Sales:', cashSales);
+    console.log('  Cash from Credit Payments:', cashFromCreditPayments);
+    console.log('  Total Cash Received:', totalCashReceived);
 
     // Calculate M-Pesa sales (all M-Pesa payment methods combined)
     const mpesaSales = sales
@@ -66,15 +69,16 @@ export const createDailyReport = async (req, res) => {
 
     const totalMpesa = mpesaSales + mpesaFromCreditPayments;
 
-    // Credit sales (amount given on credit today)
+    // Credit sales (amount given on credit today - NOT counted as revenue)
     const creditSales = sales
       .filter(s => s.paymentMethod === 'credit')
       .reduce((sum, s) => sum + s.total, 0);
 
-    // Total revenue = All sales + All credit payments collected today
-    const totalSalesAmount = sales.reduce((sum, s) => sum + s.total, 0);
+    // Total credit payments collected today
     const totalCreditPayments = payments.reduce((sum, p) => sum + p.amount, 0);
-    const totalRevenue = totalSalesAmount + totalCreditPayments;
+
+    // Total revenue = Cash + M-Pesa + Credit Payments (NOT including new credit sales)
+    const totalRevenue = totalCashReceived + totalMpesa + mpesaFromCreditPayments;
 
     // EXPECTED CASH = Opening Cash + Total Cash Received - Expenses
     const expectedCash = parseFloat(openingCash) + totalCashReceived - parseFloat(totalExpenses);
@@ -83,8 +87,12 @@ export const createDailyReport = async (req, res) => {
     const variance = parseFloat(actualCash) - expectedCash;
 
     console.log('Expected Cash Calculation:');
-    console.log(`Opening: ${openingCash} + Cash Received: ${totalCashReceived} - Expenses: ${totalExpenses} = ${expectedCash}`);
-    console.log(`Actual: ${actualCash}, Variance: ${variance}`);
+    console.log(`  Opening: ${openingCash}`);
+    console.log(`  + Cash Received: ${totalCashReceived}`);
+    console.log(`  - Expenses: ${totalExpenses}`);
+    console.log(`  = Expected Cash: ${expectedCash}`);
+    console.log(`  Actual: ${actualCash}`);
+    console.log(`  Variance: ${variance}`);
 
     // Check if report already exists
     const existingReport = await DailyReport.findOne({
@@ -111,10 +119,10 @@ export const createDailyReport = async (req, res) => {
       totalExpenses: parseFloat(totalExpenses),
       expensesNotes: expensesNotes || '',
       totalSales: sales.length,
-      totalRevenue,
+      totalRevenue, // Actual revenue (cash + mpesa + credit payments)
       cashSales: totalCashReceived, // Total cash (sales + credit payments)
       mpesaSales: totalMpesa,
-      creditSales,
+      creditSales, // Credit given today (NOT revenue)
       creditPaymentsCollected: totalCreditPayments,
       salesCount: sales.length,
       closedBy: req.user.id,

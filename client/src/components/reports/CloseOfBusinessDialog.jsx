@@ -12,7 +12,7 @@ import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Label } from '../ui/label';
 import { Alert, AlertDescription } from '../ui/alert';
-import { Loader2, Mail } from 'lucide-react';
+import { Loader2, Mail, AlertTriangle } from 'lucide-react';
 import { dailyReportService } from '../../services/dailyReport.service';
 import { formatCurrency } from '../../lib/utils';
 import api from '../../services/api';
@@ -55,14 +55,16 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
 
       console.log('Sales Summary:', summary);
 
-      // CORRECT CALCULATION:
-      // Total Cash = Cash Sales + Cash from Credit Payments
-      const totalCashReceived = summary.totalCash || 0;
+      // CRITICAL FIX: Proper cash calculation
+      // Total Cash = Cash from sales + Cash from credit payments (NOT including credit sales)
+      const cashSales = summary.cashSales || 0;
+      const cashFromCreditPayments = summary.cashFromCreditPayments || 0;
+      const totalCashReceived = summary.totalCash || (cashSales + cashFromCreditPayments);
       
       // M-Pesa (digital, not physical cash)
       const mpesaSales = summary.totalMpesa || 0;
       
-      // Credit sales (amount given on credit today - not cash)
+      // Credit sales (amount given on credit today - NOT cash, NOT revenue yet)
       const creditSalesAmount = summary.totalCredit || 0;
       
       // Credit payments collected today (already included in totalCash)
@@ -77,14 +79,19 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
       console.log('Cash Calculation:');
       console.log('Opening Cash:', openingCash);
       console.log('Total Cash Received:', totalCashReceived);
+      console.log('  - Cash Sales:', cashSales);
+      console.log('  - Cash from Credit Payments:', cashFromCreditPayments);
       console.log('Expenses:', totalExpenses);
       console.log('Expected Cash:', expectedCash);
       console.log('Actual Cash:', actualCash);
       console.log('Variance:', variance);
+      console.log('Credit Sales (NOT cash):', creditSalesAmount);
 
       setPreview({
         openingCash,
         totalCashReceived,
+        cashSales,
+        cashFromCreditPayments,
         mpesaSales,
         creditSalesAmount,
         creditPaymentsToday,
@@ -93,7 +100,7 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
         actualCash,
         variance,
         salesCount: summary.salesCount,
-        totalRevenue: summary.totalSales
+        totalRevenue: summary.totalSales // Actual revenue (cash + mpesa + credit payments)
       });
 
       setShowPreview(true);
@@ -149,7 +156,7 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
           setEmailProgress(100);
           
           setTimeout(() => {
-            alert('✅ Business closed successfully!\n\n📧 Comprehensive daily report has been sent via email with:\n• Cash balances & variance\n• Sales summary\n• Goods received\n• Production records\n• Customer debts\n• Low stock alerts');
+            alert('✅ Business closed successfully!\n\n📧 Comprehensive daily report has been sent via email.');
             resetForm();
             onSuccess?.();
             onOpenChange(false);
@@ -157,7 +164,7 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
         } catch (emailError) {
           clearInterval(progressInterval);
           console.error('Error sending email:', emailError);
-          alert('⚠️ Report saved but email sending failed.\n\nPlease check:\n1. RESEND_API_KEY is set in .env\n2. BUSINESS_EMAIL is configured\n3. Email recipients are added in Settings');
+          alert('⚠️ Report saved but email sending failed.\n\nPlease check email configuration.');
           resetForm();
           onSuccess?.();
           onOpenChange(false);
@@ -288,7 +295,15 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                       <span className="text-gray-700">Opening Cash:</span>
                       <span className="font-semibold">{formatCurrency(preview.openingCash)}</span>
                     </div>
-                    <div className="flex justify-between">
+                    <div className="flex justify-between pl-4 text-green-700">
+                      <span>• Cash from Sales:</span>
+                      <span className="font-semibold">{formatCurrency(preview.cashSales)}</span>
+                    </div>
+                    <div className="flex justify-between pl-4 text-green-700">
+                      <span>• Cash from Credit Payments:</span>
+                      <span className="font-semibold">{formatCurrency(preview.cashFromCreditPayments)}</span>
+                    </div>
+                    <div className="flex justify-between border-t pt-2">
                       <span className="text-gray-700">+ Total Cash Received:</span>
                       <span className="font-semibold text-green-600">+{formatCurrency(preview.totalCashReceived)}</span>
                     </div>
@@ -306,8 +321,18 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                 {/* FORMULA EXPLANATION */}
                 <Alert className="bg-green-50 border-green-200">
                   <AlertDescription className="text-sm">
-                    <strong>💡 Formula:</strong> Expected Cash = Opening Cash + Cash Received - Expenses<br/>
+                    <strong>💡 Formula:</strong> Expected Cash = Opening + Cash Received - Expenses<br/>
                     <strong>Calculation:</strong> {formatCurrency(preview.openingCash)} + {formatCurrency(preview.totalCashReceived)} - {formatCurrency(preview.totalExpenses)} = {formatCurrency(preview.expectedCash)}
+                  </AlertDescription>
+                </Alert>
+
+                {/* IMPORTANT: Credit Sales Note */}
+                <Alert className="bg-orange-50 border-orange-200">
+                  <AlertTriangle className="h-4 w-4 text-orange-600" />
+                  <AlertDescription className="text-sm text-orange-800">
+                    <strong>📝 Note on Credit Sales:</strong><br/>
+                    Credit sales of {formatCurrency(preview.creditSalesAmount)} are <strong>NOT included</strong> in cash calculations. 
+                    They will be counted as revenue when customers pay.
                   </AlertDescription>
                 </Alert>
 
@@ -322,14 +347,9 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                     <div>
                       <p className="text-sm text-gray-600">Credit Sales Today</p>
                       <p className="text-lg font-bold text-orange-600">{formatCurrency(preview.creditSalesAmount)}</p>
+                      <p className="text-xs text-orange-600">(Not revenue yet)</p>
                     </div>
                   </div>
-                  {preview.creditPaymentsToday > 0 && (
-                    <div className="mt-2 pt-2 border-t border-purple-300">
-                      <p className="text-xs text-green-700">✅ Credit Payments Collected: {formatCurrency(preview.creditPaymentsToday)}</p>
-                      <p className="text-xs text-gray-600 mt-1">(Already included in cash received above)</p>
-                    </div>
-                  )}
                 </div>
 
                 {/* CASH VARIANCE */}
@@ -367,6 +387,7 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                   <div>
                     <p className="text-sm text-gray-600">Total Revenue</p>
                     <p className="text-lg font-semibold">{formatCurrency(preview.totalRevenue)}</p>
+                    <p className="text-xs text-gray-500">(Money actually received)</p>
                   </div>
                 </div>
 
