@@ -1,4 +1,4 @@
-// client/src/pages/Production.jsx - CONSOLIDATED WITH ALL FEATURES (FIXED)
+// client/src/pages/Production.jsx - COMPLETE WITH EDITABLE QUANTITIES
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -68,7 +68,6 @@ export default function Production() {
   const [showReceipt, setShowReceipt] = useState(false);
   const [businessInfo, setBusinessInfo] = useState(null);
   
-  // FIX: Add activeTab state that was missing
   const [activeTab, setActiveTab] = useState('manual');
   
   // New substitution state variables
@@ -112,7 +111,6 @@ export default function Production() {
           const state = JSON.parse(cached);
           const timeDiff = Date.now() - state.timestamp;
           
-          // Only restore if less than 24 hours old
           if (timeDiff < 24 * 60 * 60 * 1000) {
             setIngredients(state.ingredients || []);
             setProductionActive(state.productionActive || false);
@@ -160,7 +158,6 @@ export default function Production() {
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery]);
 
-  // useEffect for substitution search
   useEffect(() => {
     const delayDebounceFn = setTimeout(() => {
       if (substitutionSearch) {
@@ -326,7 +323,6 @@ export default function Production() {
     alert('Production started! Ingredient stock will be deducted when you complete production.');
   };
 
-  // Enhanced completion with save confirmation
   const handleInitiateCompletion = () => {
     if (productionType === 'standard') {
       if (!finalProduct) {
@@ -354,20 +350,17 @@ export default function Production() {
       }
     }
 
-    // Ask if they want to save the formula
     setShowConfirmSaveDialog(true);
   };
 
-  // User chose to save formula
   const handleChooseSaveFormula = () => {
     setShowConfirmSaveDialog(false);
     setShowSaveFormulaDialog(true);
   };
 
-  // User chose NOT to save formula
   const handleSkipSaveFormula = () => {
     setShowConfirmSaveDialog(false);
-    proceedToCompletion(); // Proceed directly
+    proceedToCompletion();
   };
 
   const proceedToCompletion = () => {
@@ -499,7 +492,6 @@ export default function Production() {
     return splitPayments.reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0);
   };
 
-  // Enhanced formula saving that completes production after save
   const handleSaveFormula = async () => {
     if (!formulaName.trim()) {
       alert('Please enter a formula name');
@@ -541,7 +533,6 @@ export default function Production() {
       setFormulaName('');
       fetchFormulas();
       
-      // Now complete the production
       proceedToCompletion();
     } catch (error) {
       console.error('Error saving formula:', error);
@@ -551,16 +542,18 @@ export default function Production() {
     }
   };
 
-  // Updated loadFormula function with substitution tracking
   const loadFormula = (formula) => {
     setSelectedFormula(formula);
     
-    // Create working copy with substitution tracking
     const workingIngredients = formula.ingredients.map(ing => ({
       ...ing,
       originalProduct: ing.product,
       originalProductName: ing.productName,
-      isSubstituted: false
+      originalQuantity: ing.quantity,
+      isSubstituted: false,
+      currentSellingPrice: ing.currentSellingPrice || ing.sellingPrice,
+      currentBuyingPrice: ing.currentBuyingPrice || ing.buyingPrice,
+      availableInUnit: ing.availableQuantity
     }));
     
     setFormulaIngredients(workingIngredients);
@@ -578,7 +571,6 @@ export default function Production() {
     }
   };
 
-  // Substitution functions
   const openSubstitutionDialog = (index) => {
     setSubstitutionIndex(index);
     setSubstitutionSearch('');
@@ -604,10 +596,13 @@ export default function Production() {
         isSubstituted: true,
         originalProduct: originalIng.originalProduct,
         originalProductName: originalIng.originalProductName,
+        originalQuantity: originalIng.quantity,
         availableQuantity: fullProduct.quantity,
         baseUnit: fullProduct.baseUnit,
         sellingPrice: fullProduct.sellingPrice,
         buyingPrice: fullProduct.buyingPrice,
+        currentSellingPrice: fullProduct.sellingPrice,
+        currentBuyingPrice: fullProduct.buyingPrice,
         hasMultipleUnits: fullProduct.hasMultipleUnits,
         subUnits: fullProduct.subUnits || []
       };
@@ -623,6 +618,43 @@ export default function Production() {
     }
   };
 
+  const updateFormulaIngredientQuantity = (index, newQuantity) => {
+    const updatedIngredients = [...formulaIngredients];
+    updatedIngredients[index] = {
+      ...updatedIngredients[index],
+      quantity: parseFloat(newQuantity) || ''
+    };
+    setFormulaIngredients(updatedIngredients);
+  };
+
+  const updateFormulaIngredientUnit = (index, newUnit) => {
+    const updatedIngredients = [...formulaIngredients];
+    const ing = updatedIngredients[index];
+    
+    let availableInUnit = ing.availableQuantity;
+    let unitSellingPrice = ing.sellingPrice;
+    let unitBuyingPrice = ing.buyingPrice;
+    
+    if (newUnit !== ing.baseUnit) {
+      const subUnit = ing.subUnits.find(su => su.name === newUnit);
+      if (subUnit) {
+        availableInUnit = Math.floor(ing.availableQuantity * subUnit.conversionRate);
+        unitSellingPrice = subUnit.pricePerUnit;
+        unitBuyingPrice = (ing.buyingPrice * subUnit.conversionRate);
+      }
+    }
+    
+    updatedIngredients[index] = {
+      ...ing,
+      unit: newUnit,
+      availableInUnit,
+      currentSellingPrice: unitSellingPrice,
+      currentBuyingPrice: unitBuyingPrice
+    };
+    
+    setFormulaIngredients(updatedIngredients);
+  };
+
   const resetIngredientToOriginal = async (index) => {
     try {
       const ingredient = formulaIngredients[index];
@@ -635,11 +667,14 @@ export default function Production() {
         product: originalProduct._id,
         productName: originalProduct.name,
         unit: originalProduct.baseUnit,
+        quantity: ingredient.originalQuantity || ingredient.quantity,
         isSubstituted: false,
         availableQuantity: originalProduct.quantity,
         baseUnit: originalProduct.baseUnit,
         sellingPrice: originalProduct.sellingPrice,
         buyingPrice: originalProduct.buyingPrice,
+        currentSellingPrice: originalProduct.sellingPrice,
+        currentBuyingPrice: originalProduct.buyingPrice,
         hasMultipleUnits: originalProduct.hasMultipleUnits,
         subUnits: originalProduct.subUnits || []
       };
@@ -652,9 +687,22 @@ export default function Production() {
     }
   };
 
-  // Enhanced formula execution with scaling
   const executeFormula = async () => {
     if (!selectedFormula) return;
+
+    const invalidIngredients = formulaIngredients.filter(ing => !ing.quantity || ing.quantity <= 0);
+    if (invalidIngredients.length > 0) {
+      alert('Please enter valid quantities for all ingredients');
+      return;
+    }
+
+    for (const ing of formulaIngredients) {
+      const availableInUnit = ing.availableInUnit || ing.availableQuantity;
+      if (ing.quantity > availableInUnit) {
+        alert(`Insufficient stock for ${ing.productName}. Available: ${availableInUnit} ${ing.unit}`);
+        return;
+      }
+    }
 
     if (selectedFormula.type === 'custom') {
       if (!sellingPrice || parseFloat(sellingPrice) <= 0) {
@@ -664,7 +712,6 @@ export default function Production() {
       
       setShowPaymentDialog(true);
     } else {
-      // Use custom output if provided, otherwise use scaled default
       const finalOutputBags = customOutput.bags ? parseFloat(customOutput.bags) : (selectedFormula.defaultOutputBags || 0) * getScaleMultiplier();
       const finalOutputKgs = customOutput.kgs ? parseFloat(customOutput.kgs) : (selectedFormula.defaultOutputKgs || 0) * getScaleMultiplier();
       
@@ -683,16 +730,13 @@ export default function Production() {
     return formulaScale === 'full' ? 1 : formulaScale === 'half' ? 0.5 : 0.25;
   };
 
-  // Updated executeFormulaProduction to use formulaIngredients
   const executeFormulaProduction = async (saleData = null) => {
     try {
       setLoading(true);
-      const scaleMultiplier = getScaleMultiplier();
       
-      // Use working ingredients (with substitutions)
       const scaledIngredients = formulaIngredients.map(ing => ({
         product: ing.product,
-        quantity: ing.quantity * scaleMultiplier,
+        quantity: ing.quantity,
         unit: ing.unit,
         useBuyingPrice: ing.useBuyingPrice
       }));
@@ -705,13 +749,15 @@ export default function Production() {
           .filter(ing => ing.isSubstituted)
           .map(ing => ({
             original: ing.originalProductName,
-            substituted: ing.productName
+            substituted: ing.productName,
+            originalQuantity: ing.originalQuantity,
+            newQuantity: ing.quantity
           }))
       };
 
       if (selectedFormula.type === 'standard') {
-        const finalOutputBags = customOutput.bags ? parseFloat(customOutput.bags) : (selectedFormula.defaultOutputBags || 0) * scaleMultiplier;
-        const finalOutputKgs = customOutput.kgs ? parseFloat(customOutput.kgs) : (selectedFormula.defaultOutputKgs || 0) * scaleMultiplier;
+        const finalOutputBags = customOutput.bags ? parseFloat(customOutput.bags) : (selectedFormula.defaultOutputBags || 0) * getScaleMultiplier();
+        const finalOutputKgs = customOutput.kgs ? parseFloat(customOutput.kgs) : (selectedFormula.defaultOutputKgs || 0) * getScaleMultiplier();
         
         payload.outputBags = finalOutputBags;
         payload.outputKgs = finalOutputKgs;
@@ -892,7 +938,6 @@ export default function Production() {
         </div>
       </div>
 
-      {/* Auto-save indicator */}
       {(ingredients.length > 0 || productionActive) && (
         <Alert>
           <AlertCircle className="h-4 w-4" />
@@ -902,7 +947,6 @@ export default function Production() {
         </Alert>
       )}
 
-      {/* FIX: Tabs component with proper activeTab state */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="manual">Manual Production</TabsTrigger>
@@ -1450,7 +1494,7 @@ export default function Production() {
               )}
             </div>
 
-            {/* Ingredients with Substitution */}
+            {/* Ingredients with Substitution and Editable Quantities */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-base font-semibold">Ingredients</Label>
@@ -1464,7 +1508,7 @@ export default function Production() {
               <div className="border rounded-lg divide-y">
                 {formulaIngredients.map((ing, index) => (
                   <div key={index} className={`p-3 ${ing.isSubstituted ? 'bg-amber-50' : 'bg-white'}`}>
-                    <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start justify-between gap-2 mb-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           {ing.isSubstituted && (
@@ -1478,17 +1522,11 @@ export default function Production() {
                           )}
                         </div>
                         
-                        <div className="text-sm text-gray-600 space-y-1">
-                          <p>Quantity: {ing.quantity} {ing.unit}</p>
-                          {ing.isSubstituted && (
-                            <p className="text-amber-700 text-xs">
-                              Original: {ing.originalProductName}
-                            </p>
-                          )}
-                          <p className="text-xs">
-                            Available: {ing.availableQuantity} {ing.baseUnit}
+                        {ing.isSubstituted && (
+                          <p className="text-amber-700 text-xs mb-2">
+                            Original: {ing.originalProductName} ({ing.originalQuantity || ing.quantity} {ing.unit})
                           </p>
-                        </div>
+                        )}
                       </div>
                       
                       <div className="flex flex-col gap-1">
@@ -1515,6 +1553,57 @@ export default function Production() {
                         )}
                       </div>
                     </div>
+
+                    {/* Editable Quantity Section */}
+                    <div className="grid grid-cols-2 gap-2 mt-2">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Quantity</Label>
+                        <Input
+                          type="number"
+                          step="0.01"
+                          value={ing.quantity}
+                          onChange={(e) => updateFormulaIngredientQuantity(index, e.target.value)}
+                          className="h-8"
+                        />
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <Label className="text-xs">Unit</Label>
+                        {ing.hasMultipleUnits && ing.subUnits.length > 0 ? (
+                          <Select 
+                            value={ing.unit}
+                            onValueChange={(value) => updateFormulaIngredientUnit(index, value)}
+                          >
+                            <SelectTrigger className="h-8">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value={ing.baseUnit}>
+                                {ing.baseUnit}
+                              </SelectItem>
+                              {ing.subUnits.map((subUnit) => (
+                                <SelectItem key={subUnit.name} value={subUnit.name}>
+                                  {subUnit.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : (
+                          <div className="h-8 px-3 py-2 bg-gray-50 border rounded text-sm">
+                            {ing.unit}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-gray-600 mt-2 space-y-1">
+                      <p>Available: {ing.availableInUnit || ing.availableQuantity} {ing.unit}</p>
+                      {ing.quantity && (
+                        <p className="text-blue-600 font-semibold">
+                          Cost: {formatCurrency((ing.currentSellingPrice || ing.sellingPrice) * ing.quantity)}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1540,17 +1629,16 @@ export default function Production() {
               <AlertDescription>
                 {formulaIngredients.some(ing => ing.isSubstituted) ? (
                   <span className="text-amber-700">
-                    ⚠️ You've made substitutions. The original formula will remain unchanged.
+                    ⚠️ You've made substitutions. You can adjust quantities for any ingredient. The original formula will remain unchanged.
                   </span>
                 ) : (
                   <span>
-                    Ingredient quantities will be scaled automatically. Stock will be checked before execution.
+                    You can edit ingredient quantities and units. Stock will be checked before execution.
                   </span>
                 )}
               </AlertDescription>
             </Alert>
 
-            {/* Rest of the dialog content (output fields, etc.) */}
             {selectedFormula?.type === 'standard' ? (
               <>
                 <div className="space-y-2">
@@ -1646,7 +1734,10 @@ export default function Production() {
                 <p className="text-sm text-gray-600 mb-1">Replacing:</p>
                 <p className="font-semibold">{formulaIngredients[substitutionIndex].productName}</p>
                 <p className="text-sm text-gray-600 mt-1">
-                  Quantity will remain: {formulaIngredients[substitutionIndex].quantity} {formulaIngredients[substitutionIndex].unit}
+                  Current quantity: {formulaIngredients[substitutionIndex].quantity} {formulaIngredients[substitutionIndex].unit}
+                </p>
+                <p className="text-xs text-blue-600 mt-1">
+                  You can change the quantity after substituting
                 </p>
               </div>
             )}
@@ -1718,7 +1809,7 @@ export default function Production() {
               </div>
               <div className="text-sm text-gray-600 mt-1">
                 {selectedFormula ? (
-                  <>Formula: {selectedFormula.name} - {customerName || selectedFormula.customerName}</>
+                  <>{selectedFormula.name} - {customerName || selectedFormula.customerName}</>
                 ) : (
                   <>{customerName} - {customOutputName}</>
                 )}
