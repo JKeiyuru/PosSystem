@@ -1,4 +1,4 @@
-// client/src/pages/Dashboard.jsx - FIXED with proper credit sales display
+// client/src/pages/Dashboard.jsx - UPDATED with clickable Credit Sales card and all existing dialogs
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
@@ -33,6 +33,7 @@ import { formatCurrency, formatDateTime } from '../lib/utils';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { Badge } from '../components/ui/badge';
 import api from '../services/api';
+import CreditSalesSheet from '../components/dashboard/CreditSalesSheet';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -53,6 +54,7 @@ export default function Dashboard() {
   const [showLowStockDialog, setShowLowStockDialog] = useState(false);
   const [showTodaysSalesDialog, setShowTodaysSalesDialog] = useState(false);
   const [showResetDialog, setShowResetDialog] = useState(false);
+  const [showCreditSalesSheet, setShowCreditSalesSheet] = useState(false);
   const [lastResetDate, setLastResetDate] = useState(null);
 
   useEffect(() => {
@@ -196,7 +198,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Cards - UPDATED with proper separation */}
+      {/* Stats Cards - UPDATED with proper separation and clickable Credit Sales card */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
         <Card 
           className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
@@ -229,8 +231,11 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        {/* Credit Sales Card - NOT counted as revenue */}
-        <Card className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 col-span-2 md:col-span-1">
+        {/* Credit Sales Card - CLICKABLE */}
+        <Card 
+          className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
+          onClick={() => setShowCreditSalesSheet(true)}
+        >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
             <CardTitle className="text-xs sm:text-sm font-medium">Credit Sales Today</CardTitle>
             <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-orange-600" />
@@ -240,7 +245,7 @@ export default function Dashboard() {
               {formatCurrency(stats.todayCreditSales)}
             </div>
             <p className="text-xs text-orange-600">
-              Given on credit (not revenue yet)
+              Click to view history
             </p>
           </CardContent>
         </Card>
@@ -300,7 +305,7 @@ export default function Dashboard() {
         </AlertTitle>
         <AlertDescription className="text-blue-700 text-sm">
           <strong>Today's Revenue</strong> includes only actual money received: Cash sales + M-Pesa sales + Credit payments collected. 
-          <strong className="ml-2">Credit Sales Today</strong> shows money given on credit (will be revenue when paid).
+          <strong className="ml-2">Credit Sales Today</strong> shows money given on credit (will be revenue when paid). Click the card to see details.
         </AlertDescription>
       </Alert>
 
@@ -485,6 +490,12 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       )}
+
+      {/* Credit Sales Sheet */}
+      <CreditSalesSheet 
+        open={showCreditSalesSheet}
+        onOpenChange={setShowCreditSalesSheet}
+      />
 
       {/* Reset Analytics Confirmation Dialog */}
       <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>

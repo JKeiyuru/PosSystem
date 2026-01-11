@@ -1,4 +1,4 @@
-// server/controllers/sale.controller.js - COMPLETELY FIXED
+// server/controllers/sale.controller.js - FIXED: Credit sales NOT counted as revenue
 
 import Sale from '../models/Sale.model.js';
 import Product from '../models/Product.model.js';
@@ -7,6 +7,135 @@ import StockMovement from '../models/StockMovement.model.js';
 import PaymentTransaction from '../models/PaymentTransaction.model.js';
 import mongoose from 'mongoose';
 
+export const getDailySales = async (req, res) => {
+  try {
+    const { date } = req.query;
+    const targetDate = date ? new Date(date) : new Date();
+    
+    const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
+    const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
+
+    const sales = await Sale.find({
+      saleDate: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    }).populate('customer').populate('cashier', 'name');
+
+    const payments = await PaymentTransaction.find({
+      paymentDate: {
+        $gte: startOfDay,
+        $lte: endOfDay
+      }
+    });
+
+    console.log(`Found ${sales.length} sales and ${payments.length} payment transactions for the day`);
+
+    // CRITICAL FIX: Only count CASH and M-PESA sales as revenue, NOT credit sales
+    
+    // 1. Cash sales (actual cash received today from direct sales)
+    const cashSales = sales
+      .filter(s => s.paymentMethod === 'cash' && s.paymentMethod !== 'credit')
+      .reduce((sum, s) => sum + s.amountPaid, 0);
+    
+    // 2. M-Pesa sales (actual M-Pesa received today from direct sales)
+    const mpesaPaybill = sales
+      .filter(s => s.paymentMethod === 'mpesa_paybill')
+      .reduce((sum, s) => sum + s.amountPaid, 0);
+    
+    const mpesaBeth = sales
+      .filter(s => s.paymentMethod === 'mpesa_beth')
+      .reduce((sum, s) => sum + s.amountPaid, 0);
+    
+    const mpesaMartin = sales
+      .filter(s => s.paymentMethod === 'mpesa_martin')
+      .reduce((sum, s) => sum + s.amountPaid, 0);
+    
+    const mpesaTill = sales
+      .filter(s => s.paymentMethod === 'mpesa_till')
+      .reduce((sum, s) => sum + s.amountPaid, 0);
+
+    const gdcPaybill = sales
+      .filter(s => s.paymentMethod === 'gdc_paybill')
+      .reduce((sum, s) => sum + s.amountPaid, 0);
+    
+    const totalMpesa = mpesaPaybill + mpesaBeth + mpesaMartin + mpesaTill + gdcPaybill;
+
+    // 3. Cash from credit payments collected today (from previous credit sales)
+    const cashFromCreditPayments = payments
+      .filter(p => p.paymentMethod === 'cash')
+      .reduce((sum, p) => sum + p.amount, 0);
+    
+    // 4. M-Pesa from credit payments collected today
+    const mpesaFromCreditPayments = payments
+      .filter(p => p.paymentMethod.includes('mpesa') || p.paymentMethod.includes('gdc'))
+      .reduce((sum, p) => sum + p.amount, 0);
+    
+    const totalCreditPayments = cashFromCreditPayments + mpesaFromCreditPayments;
+
+    // 5. Total CASH received (for end of day reconciliation)
+    const totalCash = cashSales + cashFromCreditPayments;
+
+    // 6. Credit sales made TODAY (NOT counted as revenue - just for tracking)
+    const creditSalesToday = sales
+      .filter(s => s.paymentMethod === 'credit')
+      .reduce((sum, s) => sum + s.total, 0);
+
+    // TOTAL REVENUE = Cash + M-Pesa + Credit Payments (NOT including new credit sales)
+    const totalRevenue = totalCash + totalMpesa + mpesaFromCreditPayments;
+
+    console.log('Revenue Calculation:');
+    console.log('  Cash Sales:', cashSales);
+    console.log('  M-Pesa Sales:', totalMpesa);
+    console.log('  Cash from Credit Payments:', cashFromCreditPayments);
+    console.log('  M-Pesa from Credit Payments:', mpesaFromCreditPayments);
+    console.log('  = TOTAL REVENUE:', totalRevenue);
+    console.log('  Credit Sales Today (NOT revenue):', creditSalesToday);
+
+    res.json({
+      success: true,
+      data: {
+        sales,
+        payments,
+        summary: {
+          // Today's actual revenue (money received)
+          totalSales: totalRevenue,
+          
+          // Cash breakdown
+          totalCash, // For end of day reconciliation
+          cashSales, // From direct cash sales
+          cashFromCreditPayments, // From credit collections
+          
+          // M-Pesa breakdown
+          totalMpesa,
+          totalMpesaPaybill: mpesaPaybill,
+          totalMpesaBeth: mpesaBeth,
+          totalMpesaMartin: mpesaMartin,
+          totalMpesaTill: mpesaTill,
+          totalGdcPaybill: gdcPaybill,
+          mpesaFromCreditPayments,
+          
+          // Credit sales (NOT revenue yet)
+          totalCredit: creditSalesToday,
+          
+          // Credit payments collected today
+          creditPaymentsToday: totalCreditPayments,
+          
+          salesCount: sales.length,
+          paymentsCount: payments.length
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Error in getDailySales:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
+// Export other functions...
 export const createSale = async (req, res) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -153,7 +282,7 @@ export const createSale = async (req, res) => {
       if (customerDoc) {
         customerName = customerDoc.name;
         
-        // CRITICAL FIX: Check credit limit, not current credit
+        // Check credit limit
         if (finalPaymentMethod === 'credit') {
           const newTotalCredit = customerDoc.currentCredit + calculatedAmountDue;
           if (newTotalCredit > customerDoc.creditLimit) {
@@ -349,113 +478,6 @@ export const getSaleById = async (req, res) => {
     res.json({
       success: true,
       data: sale
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
-
-export const getDailySales = async (req, res) => {
-  try {
-    const { date } = req.query;
-    const targetDate = date ? new Date(date) : new Date();
-    
-    const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0));
-    const endOfDay = new Date(targetDate.setHours(23, 59, 59, 999));
-
-    const sales = await Sale.find({
-      saleDate: {
-        $gte: startOfDay,
-        $lte: endOfDay
-      }
-    }).populate('customer').populate('cashier', 'name');
-
-    const payments = await PaymentTransaction.find({
-      paymentDate: {
-        $gte: startOfDay,
-        $lte: endOfDay
-      }
-    });
-
-    // CRITICAL FIX: Proper revenue calculation
-    // Revenue = Cash + M-Pesa sales (NOT credit sales) + Credit payments collected
-    
-    // 1. Cash sales (actual cash received today)
-    const cashSales = sales
-      .filter(s => s.paymentMethod === 'cash')
-      .reduce((sum, s) => sum + s.amountPaid, 0);
-    
-    // 2. M-Pesa sales (actual M-Pesa received today)
-    const mpesaPaybill = sales
-      .filter(s => s.paymentMethod === 'mpesa_paybill')
-      .reduce((sum, s) => sum + s.amountPaid, 0);
-    
-    const mpesaBeth = sales
-      .filter(s => s.paymentMethod === 'mpesa_beth')
-      .reduce((sum, s) => sum + s.amountPaid, 0);
-    
-    const mpesaMartin = sales
-      .filter(s => s.paymentMethod === 'mpesa_martin')
-      .reduce((sum, s) => sum + s.amountPaid, 0);
-    
-    const totalMpesa = mpesaPaybill + mpesaBeth + mpesaMartin;
-
-    // 3. Credit payments collected today (from previous credit sales)
-    const cashFromCreditPayments = payments
-      .filter(p => p.paymentMethod === 'cash')
-      .reduce((sum, p) => sum + p.amount, 0);
-    
-    const mpesaFromCreditPayments = payments
-      .filter(p => p.paymentMethod.includes('mpesa') || p.paymentMethod.includes('gdc'))
-      .reduce((sum, p) => sum + p.amount, 0);
-    
-    const totalCreditPayments = cashFromCreditPayments + mpesaFromCreditPayments;
-
-    // 4. Total CASH received (for end of day reconciliation)
-    const totalCash = cashSales + cashFromCreditPayments;
-
-    // 5. Credit sales made TODAY (NOT counted as revenue yet)
-    const creditSalesToday = sales
-      .filter(s => s.paymentMethod === 'credit')
-      .reduce((sum, s) => sum + s.total, 0);
-
-    // TOTAL REVENUE = Cash + M-Pesa + Credit Payments (NOT including new credit sales)
-    const totalRevenue = totalCash + totalMpesa + mpesaFromCreditPayments;
-
-    res.json({
-      success: true,
-      data: {
-        sales,
-        payments,
-        summary: {
-          // Today's actual revenue (money received)
-          totalSales: totalRevenue,
-          
-          // Cash breakdown
-          totalCash, // For end of day reconciliation
-          cashSales, // From direct cash sales
-          cashFromCreditPayments, // From credit collections
-          
-          // M-Pesa breakdown
-          totalMpesa,
-          totalMpesaPaybill: mpesaPaybill,
-          totalMpesaBeth: mpesaBeth,
-          totalMpesaMartin: mpesaMartin,
-          mpesaFromCreditPayments,
-          
-          // Credit sales (NOT revenue yet)
-          totalCredit: creditSalesToday,
-          
-          // Credit payments collected today
-          creditPaymentsToday: totalCreditPayments,
-          
-          salesCount: sales.length,
-          paymentsCount: payments.length
-        }
-      }
     });
   } catch (error) {
     res.status(500).json({

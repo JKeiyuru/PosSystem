@@ -1,15 +1,15 @@
 /* eslint-disable no-unused-vars */
-// client/src/pages/POS.jsx - UPDATED: Credit validation, new payment methods
+// client/src/pages/POS.jsx - FIXED: Credit sales NOT counted as revenue
 
 import { useState, useEffect, useRef } from 'react';
-import { Alert } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/ui/dialog';
-import { Search, Trash2, Plus, Minus, Package, Tag, AlertCircle } from 'lucide-react';
+import { Alert, AlertDescription } from '../components/ui/alert'; // FIXED: Added import
+import { Search, Trash2, Plus, Minus, Package, Tag, AlertCircle, AlertTriangle } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { customerService } from '../services/customer.service';
 import { saleService } from '../services/sale.service';
@@ -231,7 +231,7 @@ export default function POS() {
 
     const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
     
-    // ADDED: Check if credit payment without customer
+    // Check if credit payment without customer
     const hasCreditPayment = splitPayments.some(p => p.method === 'credit');
     if (hasCreditPayment && (!selectedCustomer || selectedCustomer === 'none')) {
       alert('⚠️ Credit sales require a customer to be selected!\n\nPlease select a customer from the dropdown before proceeding with a credit sale.');
@@ -682,30 +682,30 @@ export default function POS() {
 
             {/* Credit Warning */}
             {splitPayments.some(p => p.method === 'credit') && (!selectedCustomer || selectedCustomer === 'none') && (
-              <div className="p-3 bg-red-50 rounded-lg border border-red-200">
-                <p className="text-sm text-red-800 font-semibold">
-                  ⚠️ Credit sales require a customer to be selected!
-                </p>
-                <p className="text-xs text-red-600 mt-1">
-                  Please go back and select a customer before proceeding.
-                </p>
-              </div>
+              <Alert className="bg-red-50 border-red-200">
+                <AlertTriangle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-800">
+                  <p className="font-semibold">⚠️ Credit sales require a customer to be selected!</p>
+                  <p className="text-sm mt-1">Please go back and select a customer before proceeding.</p>
+                </AlertDescription>
+              </Alert>
             )}
 
             {/* Credit Sale Warning */}
-{splitPayments.some(p => p.method === 'credit') && (
-  <Alert className="bg-orange-50 border-orange-200">
-    <AlertTriangle className="h-4 w-4 text-orange-600" />
-    <AlertDescription className="text-orange-800">
-      <strong>⚠️ Credit Sale Notice:</strong>
-      <ul className="list-disc list-inside mt-2 text-sm">
-        <li>This amount will NOT be counted as today's revenue</li>
-        <li>It will only be revenue when the customer pays</li>
-        <li>Ensure customer is selected and has sufficient credit limit</li>
-      </ul>
-    </AlertDescription>
-  </Alert>
-)}
+            {splitPayments.some(p => p.method === 'credit') && (
+              <Alert className="bg-orange-50 border-orange-200">
+                <AlertTriangle className="h-4 w-4 text-orange-600" />
+                <AlertDescription className="text-orange-800">
+                  <strong>⚠️ Credit Sale Notice:</strong>
+                  <ul className="list-disc list-inside mt-2 text-sm">
+                    <li>This amount will NOT be counted as today's revenue</li>
+                    <li>It will only be revenue when the customer pays</li>
+                    <li>It will appear under "Credit Sales Today" on the dashboard</li>
+                    <li>Ensure customer is selected and has sufficient credit limit</li>
+                  </ul>
+                </AlertDescription>
+              </Alert>
+            )}
 
             <div className="p-4 bg-blue-50 rounded-lg space-y-2">
               <div className="flex justify-between">
@@ -780,7 +780,7 @@ export default function POS() {
         open={showCloseBusinessDialog}
         onOpenChange={setShowCloseBusinessDialog}
         onSuccess={() => {
-          fetchProducts();
+          fetchProducts
         }}
       />
     </>
