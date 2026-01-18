@@ -1,4 +1,4 @@
-// server/routes/debt.routes.js - UPDATED with delete route
+// server/routes/debt.routes.js - UPDATED
 
 import express from 'express';
 import {
@@ -6,7 +6,8 @@ import {
   recordDebtPayment,
   generateDebtReport,
   getTodayDebtPayments,
-  deleteDebt // NEW
+  deleteDebt,
+  getPaymentsByDate // NEW
 } from '../controllers/debt.controller.js';
 import { protect, authorize } from '../middlewares/auth.middleware.js';
 
@@ -16,8 +17,7 @@ router.get('/', protect, getAllDebts);
 router.post('/payment', protect, recordDebtPayment);
 router.get('/report', protect, generateDebtReport);
 router.get('/payments/today', protect, getTodayDebtPayments);
-
-// NEW: Delete debt route (admin only)
+router.get('/payments/by-date', protect, getPaymentsByDate); // NEW
 router.delete('/:customerId', protect, authorize('admin'), deleteDebt);
 
 export default router;

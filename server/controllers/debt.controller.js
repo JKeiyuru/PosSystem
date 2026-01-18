@@ -407,6 +407,37 @@ export const generateDebtReport = async (req, res) => {
   }
 };
 
+// NEW: Get credit payments by date range
+export const getPaymentsByDate = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+
+    let query = {};
+
+    if (startDate || endDate) {
+      query.paymentDate = {};
+      if (startDate) query.paymentDate.$gte = new Date(startDate);
+      if (endDate) query.paymentDate.$lte = new Date(endDate);
+    }
+
+    const payments = await PaymentTransaction.find(query)
+      .populate('customer', 'name phone')
+      .populate('receivedBy', 'name')
+      .sort({ paymentDate: -1 });
+
+    res.json({
+      success: true,
+      data: payments
+    });
+  } catch (error) {
+    console.error('Error in getPaymentsByDate:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+};
+
 // Helper function for formatting currency (for logging)
 function formatCurrency(amount) {
   return new Intl.NumberFormat('en-KE', {

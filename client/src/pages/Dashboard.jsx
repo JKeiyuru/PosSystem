@@ -34,6 +34,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 import { Badge } from '../components/ui/badge';
 import api from '../services/api';
 import CreditSalesSheet from '../components/dashboard/CreditSalesSheet';
+import CreditCollectionsSheet from '../components/dashboard/CreditCollectionsSheet';
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -56,6 +57,7 @@ export default function Dashboard() {
   const [showResetDialog, setShowResetDialog] = useState(false);
   const [showCreditSalesSheet, setShowCreditSalesSheet] = useState(false);
   const [lastResetDate, setLastResetDate] = useState(null);
+  const [showCreditCollectionsSheet, setShowCreditCollectionsSheet] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -198,116 +200,125 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Cards - UPDATED with proper separation and clickable Credit Sales card */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
-        <Card 
-          className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
-          onClick={() => setShowTodaysSalesDialog(true)}
-        >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-            <CardTitle className="text-xs sm:text-sm font-medium">Today's Sales</CardTitle>
-            <ShoppingCart className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="text-lg sm:text-2xl font-bold">{stats.todaySales}</div>
-            <p className="text-xs text-muted-foreground">
-              Click to view details
-            </p>
-          </CardContent>
-        </Card>
+{/* Stats Cards - FIXED with proper Credit Sales and Clickable Collections */}
+<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
+  <Card 
+    className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
+    onClick={() => setShowTodaysSalesDialog(true)}
+  >
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+      <CardTitle className="text-xs sm:text-sm font-medium">Today's Sales</CardTitle>
+      <ShoppingCart className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+    </CardHeader>
+    <CardContent className="p-3 sm:p-6 pt-0">
+      <div className="text-lg sm:text-2xl font-bold">{stats.todaySales}</div>
+      <p className="text-xs text-muted-foreground">
+        Click to view details
+      </p>
+    </CardContent>
+  </Card>
 
-        <Card className="col-span-2 md:col-span-1 bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-            <CardTitle className="text-xs sm:text-sm font-medium">Today's Revenue</CardTitle>
-            <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
-          </CardHeader>
-          <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="text-lg sm:text-2xl font-bold text-green-700">
-              {formatCurrency(stats.todayRevenue)}
-            </div>
-            <p className="text-xs text-green-600">
-              Cash + M-Pesa + Collections
-            </p>
-          </CardContent>
-        </Card>
-
-        {/* Credit Sales Card - CLICKABLE */}
-        <Card 
-          className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
-          onClick={() => setShowCreditSalesSheet(true)}
-        >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-            <CardTitle className="text-xs sm:text-sm font-medium">Credit Sales Today</CardTitle>
-            <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-orange-600" />
-          </CardHeader>
-          <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="text-lg sm:text-2xl font-bold text-orange-700">
-              {formatCurrency(stats.todayCreditSales)}
-            </div>
-            <p className="text-xs text-orange-600">
-              Click to view history
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 col-span-2 md:col-span-1">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-            <CardTitle className="text-xs sm:text-sm font-medium">Credit Collections</CardTitle>
-            <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
-          </CardHeader>
-          <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="text-lg sm:text-2xl font-bold text-blue-700">
-              {formatCurrency(stats.todayDebtPayments)}
-            </div>
-            <p className="text-xs text-blue-600">
-              Debt payments collected today
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="col-span-2 md:col-span-1">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-            <CardTitle className="text-xs sm:text-sm font-medium">Stock Value</CardTitle>
-            <Package className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="text-lg sm:text-2xl font-bold">
-              {formatCurrency(stats.stockValue)}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Total inventory
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card 
-          className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
-          onClick={() => setShowLowStockDialog(true)}
-        >
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-            <CardTitle className="text-xs sm:text-sm font-medium">Low Stock</CardTitle>
-            <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500" />
-          </CardHeader>
-          <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="text-lg sm:text-2xl font-bold">{stats.lowStockCount}</div>
-            <p className="text-xs text-muted-foreground">
-              Click to view items
-            </p>
-          </CardContent>
-        </Card>
+  <Card className="col-span-2 md:col-span-1 bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+      <CardTitle className="text-xs sm:text-sm font-medium">Today's Revenue</CardTitle>
+      <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
+    </CardHeader>
+    <CardContent className="p-3 sm:p-6 pt-0">
+      <div className="text-lg sm:text-2xl font-bold text-green-700">
+        {formatCurrency(stats.todayRevenue)}
       </div>
+      <p className="text-xs text-green-600">
+        Cash + M-Pesa + Collections
+      </p>
+    </CardContent>
+  </Card>
 
-      {/* Info Alert explaining revenue */}
-      <Alert className="bg-blue-50 border-blue-200">
-        <AlertTitle className="flex items-center text-blue-800">
-          <DollarSign className="h-4 w-4 mr-2" />
-          Revenue Calculation
-        </AlertTitle>
-        <AlertDescription className="text-blue-700 text-sm">
-          <strong>Today's Revenue</strong> includes only actual money received: Cash sales + M-Pesa sales + Credit payments collected. 
-          <strong className="ml-2">Credit Sales Today</strong> shows money given on credit (will be revenue when paid). Click the card to see details.
-        </AlertDescription>
-      </Alert>
+  {/* Credit Collections Card - CLICKABLE */}
+  <Card 
+    className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
+    onClick={() => setShowCreditCollectionsSheet(true)}
+  >
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+      <CardTitle className="text-xs sm:text-sm font-medium">Credit Collections</CardTitle>
+      <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
+    </CardHeader>
+    <CardContent className="p-3 sm:p-6 pt-0">
+      <div className="text-lg sm:text-2xl font-bold text-blue-700">
+        {formatCurrency(stats.todayDebtPayments)}
+      </div>
+      <p className="text-xs text-blue-600">
+        Click to view history
+      </p>
+    </CardContent>
+  </Card>
+
+  {/* Credit Sales Card - CLICKABLE */}
+  <Card 
+    className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
+    onClick={() => setShowCreditSalesSheet(true)}
+  >
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+      <CardTitle className="text-xs sm:text-sm font-medium">Credit Sales Today</CardTitle>
+      <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-orange-600" />
+    </CardHeader>
+    <CardContent className="p-3 sm:p-6 pt-0">
+      <div className="text-lg sm:text-2xl font-bold text-orange-700">
+        {formatCurrency(stats.todayCreditSales)}
+      </div>
+      <p className="text-xs text-orange-600">
+        Click to view history
+      </p>
+    </CardContent>
+  </Card>
+
+  <Card className="col-span-2 md:col-span-1">
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+      <CardTitle className="text-xs sm:text-sm font-medium">Stock Value</CardTitle>
+      <Package className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+    </CardHeader>
+    <CardContent className="p-3 sm:p-6 pt-0">
+      <div className="text-lg sm:text-2xl font-bold">
+        {formatCurrency(stats.stockValue)}
+      </div>
+      <p className="text-xs text-muted-foreground">
+        Total inventory
+      </p>
+    </CardContent>
+  </Card>
+
+  <Card 
+    className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
+    onClick={() => setShowLowStockDialog(true)}
+  >
+    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+      <CardTitle className="text-xs sm:text-sm font-medium">Low Stock</CardTitle>
+      <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500" />
+    </CardHeader>
+    <CardContent className="p-3 sm:p-6 pt-0">
+      <div className="text-lg sm:text-2xl font-bold">{stats.lowStockCount}</div>
+      <p className="text-xs text-muted-foreground">
+        Click to view items
+      </p>
+    </CardContent>
+  </Card>
+</div>
+
+      {/* Info Alert - UPDATED explanation */}
+<Alert className="bg-blue-50 border-blue-200">
+  <AlertTitle className="flex items-center text-blue-800">
+    <DollarSign className="h-4 w-4 mr-2" />
+    Revenue Calculation Explained
+  </AlertTitle>
+  <AlertDescription className="text-blue-700 text-sm">
+    <strong>Today's Revenue</strong> = Cash sales + M-Pesa sales + Credit payments collected today. 
+    <br />
+    <strong className="mt-1 inline-block">Credit Sales Today</strong> shows money given on credit (NOT revenue yet - becomes revenue when paid).
+    <br />
+    <strong className="mt-1 inline-block">Credit Collections</strong> shows debt payments received today (IS counted as revenue).
+  </AlertDescription>
+</Alert>
+
+
 
       {/* Monthly Revenue & Net Profit Chart */}
       <Card>
@@ -496,6 +507,12 @@ export default function Dashboard() {
         open={showCreditSalesSheet}
         onOpenChange={setShowCreditSalesSheet}
       />
+
+{/* Credit collections Sheet */}
+      <CreditCollectionsSheet 
+  open={showCreditCollectionsSheet}
+  onOpenChange={setShowCreditCollectionsSheet}
+/>
 
       {/* Reset Analytics Confirmation Dialog */}
       <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>

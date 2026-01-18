@@ -1494,7 +1494,7 @@ export default function Production() {
               )}
             </div>
 
-            {/* Ingredients with Substitution and Editable Quantities */}
+            {/* Enhanced Execute Formula Dialog - Ingredients Section */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-base font-semibold">Ingredients</Label>
@@ -1554,7 +1554,7 @@ export default function Production() {
                       </div>
                     </div>
 
-                    {/* Editable Quantity Section */}
+                    {/* Editable Quantity and Unit */}
                     <div className="grid grid-cols-2 gap-2 mt-2">
                       <div className="space-y-1">
                         <Label className="text-xs">Quantity</Label>
@@ -1569,7 +1569,7 @@ export default function Production() {
                       
                       <div className="space-y-1">
                         <Label className="text-xs">Unit</Label>
-                        {ing.hasMultipleUnits && ing.subUnits.length > 0 ? (
+                        {ing.hasMultipleUnits && ing.subUnits && ing.subUnits.length > 0 ? (
                           <Select 
                             value={ing.unit}
                             onValueChange={(value) => updateFormulaIngredientUnit(index, value)}
@@ -1721,7 +1721,7 @@ export default function Production() {
         </DialogContent>
       </Dialog>
 
-      {/* Substitution Dialog */}
+      {/* Substitution Dialog with Unit Selection */}
       <Dialog open={showSubstitutionDialog} onOpenChange={setShowSubstitutionDialog}>
         <DialogContent className="max-w-2xl max-h-[80vh]">
           <DialogHeader>
@@ -1737,7 +1737,7 @@ export default function Production() {
                   Current quantity: {formulaIngredients[substitutionIndex].quantity} {formulaIngredients[substitutionIndex].unit}
                 </p>
                 <p className="text-xs text-blue-600 mt-1">
-                  You can change the quantity after substituting
+                  You can change the quantity and unit after substituting
                 </p>
               </div>
             )}
@@ -1775,6 +1775,11 @@ export default function Production() {
                               Buy: {formatCurrency(product.buyingPrice)}
                             </p>
                           </div>
+                          {product.hasMultipleUnits && product.subUnits.length > 0 && (
+                            <p className="text-xs text-purple-600 mt-1">
+                              ✓ Multiple units available
+                            </p>
+                          )}
                         </div>
                         <Button size="sm" variant="ghost">
                           Select
