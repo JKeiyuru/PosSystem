@@ -1,4 +1,4 @@
-// client/src/services/sale.service.js
+// client/src/services/sale.service.js - UPDATED
 
 import api from './api';
 
@@ -25,6 +25,12 @@ export const saleService = {
 
   getDailySales: async (date) => {
     const response = await api.get('/sales/daily', { params: { date } });
+    return response.data;
+  },
+
+  // NEW: Get revenue breakdown
+  getRevenueBreakdown: async (params) => {
+    const response = await api.get('/sales/analytics/revenue-breakdown', { params });
     return response.data;
   }
 };

@@ -1,4 +1,4 @@
-// client/src/pages/Production.jsx - COMPLETE WITH EDITABLE QUANTITIES
+// client/src/pages/Production.jsx - COMPLETE WITH CONFIRMATION BEFORE COMPLETION
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -71,11 +71,16 @@ export default function Production() {
   const [activeTab, setActiveTab] = useState('manual');
   
   // New substitution state variables
-  const [formulaIngredients, setFormulaIngredients] = useState([]); // Working copy
+  const [formulaIngredients, setFormulaIngredients] = useState([]);
   const [showSubstitutionDialog, setShowSubstitutionDialog] = useState(false);
   const [substitutionIndex, setSubstitutionIndex] = useState(null);
   const [substitutionSearch, setSubstitutionSearch] = useState('');
   const [substitutionProducts, setSubstitutionProducts] = useState([]);
+  
+  // NEW: Confirmation dialog state
+  const [showConfirmCompletionDialog, setShowConfirmCompletionDialog] = useState(false);
+  const [pendingProductionData, setPendingProductionData] = useState(null);
+  const [isFormulaExecution, setIsFormulaExecution] = useState(false);
   
   const receiptRef = useRef();
 
@@ -320,9 +325,10 @@ export default function Production() {
     }
 
     setProductionActive(true);
-    alert('Production started! Ingredient stock will be deducted when you complete production.');
+    alert('Production started! Fill in the output details and click "Complete Production" when ready.');
   };
 
+  // NEW: Handle initiate completion - shows confirmation dialog instead of immediate completion
   const handleInitiateCompletion = () => {
     if (productionType === 'standard') {
       if (!finalProduct) {
@@ -360,14 +366,35 @@ export default function Production() {
 
   const handleSkipSaveFormula = () => {
     setShowConfirmSaveDialog(false);
-    proceedToCompletion();
+    // NEW: Show final confirmation dialog instead of proceeding directly
+    showFinalConfirmation();
   };
 
-  const proceedToCompletion = () => {
+  // NEW: Show final confirmation before completing production
+  const showFinalConfirmation = () => {
+    setIsFormulaExecution(false);
+    setShowConfirmCompletionDialog(true);
+  };
+
+  // NEW: Handle final confirmation to complete
+  const handleConfirmCompletion = () => {
+    setShowConfirmCompletionDialog(false);
+    
     if (productionType === 'custom') {
       setShowPaymentDialog(true);
     } else {
       endProduction();
+    }
+  };
+
+  // NEW: Handle cancel production
+  const handleCancelProduction = () => {
+    setShowConfirmCompletionDialog(false);
+    
+    if (window.confirm('Are you sure you want to cancel this production? All progress will be lost.')) {
+      resetProduction();
+      clearCache();
+      alert('Production cancelled. No stock has been deducted.');
     }
   };
 
@@ -533,7 +560,8 @@ export default function Production() {
       setFormulaName('');
       fetchFormulas();
       
-      proceedToCompletion();
+      // NEW: Show final confirmation after saving formula
+      showFinalConfirmation();
     } catch (error) {
       console.error('Error saving formula:', error);
       alert('Error saving formula: ' + (error.response?.data?.message || error.message));
@@ -596,7 +624,7 @@ export default function Production() {
         isSubstituted: true,
         originalProduct: originalIng.originalProduct,
         originalProductName: originalIng.originalProductName,
-        originalQuantity: originalIng.quantity,
+        originalQuantity: originalIng.originalQuantity,
         availableQuantity: fullProduct.quantity,
         baseUnit: fullProduct.baseUnit,
         sellingPrice: fullProduct.sellingPrice,
@@ -687,6 +715,7 @@ export default function Production() {
     }
   };
 
+  // NEW: Modified to show confirmation dialog for formula execution
   const executeFormula = async () => {
     if (!selectedFormula) return;
 
@@ -709,8 +738,6 @@ export default function Production() {
         alert('Please enter a valid selling price for the custom combination');
         return;
       }
-      
-      setShowPaymentDialog(true);
     } else {
       const finalOutputBags = customOutput.bags ? parseFloat(customOutput.bags) : (selectedFormula.defaultOutputBags || 0) * getScaleMultiplier();
       const finalOutputKgs = customOutput.kgs ? parseFloat(customOutput.kgs) : (selectedFormula.defaultOutputKgs || 0) * getScaleMultiplier();
@@ -719,10 +746,35 @@ export default function Production() {
         alert('Please enter output quantity for inventory');
         return;
       }
-      
-      setOutputBags(finalOutputBags.toString());
-      setOutputKgs(finalOutputKgs.toString());
-      await executeFormulaProduction();
+    }
+
+    // NEW: Show confirmation dialog before executing
+    setIsFormulaExecution(true);
+    setShowConfirmCompletionDialog(true);
+  };
+
+  // NEW: Handle formula execution confirmation
+  const handleConfirmFormulaExecution = () => {
+    setShowConfirmCompletionDialog(false);
+    
+    if (selectedFormula.type === 'custom') {
+      setShowPaymentDialog(true);
+    } else {
+      executeFormulaProduction();
+    }
+  };
+
+  // NEW: Handle cancel formula execution
+  const handleCancelFormulaExecution = () => {
+    setShowConfirmCompletionDialog(false);
+    
+    if (window.confirm('Are you sure you want to cancel this formula execution? All progress will be lost.')) {
+      setShowExecuteFormulaDialog(false);
+      setSelectedFormula(null);
+      setFormulaIngredients([]);
+      setFormulaScale('full');
+      setCustomOutput({ bags: '', kgs: '' });
+      alert('Formula execution cancelled. No stock has been deducted.');
     }
   };
 
@@ -1408,6 +1460,81 @@ export default function Production() {
         </CardContent>
       </Card>
 
+      {/* NEW: Final Confirmation Dialog Before Completing Production */}
+      <Dialog open={showConfirmCompletionDialog} onOpenChange={setShowConfirmCompletionDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center space-x-2">
+              <AlertCircle className="h-5 w-5 text-yellow-600" />
+              <span>Confirm Production Completion</span>
+            </DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <Alert className="bg-yellow-50 border-yellow-200">
+              <AlertDescription>
+                <p className="font-semibold text-yellow-900 mb-2">
+                  ⚠️ Are you sure you want to complete this production?
+                </p>
+                <p className="text-sm text-yellow-800">
+                  This action will:
+                </p>
+                <ul className="list-disc list-inside text-sm text-yellow-800 mt-2 space-y-1">
+                  <li>Deduct all ingredients from your stock</li>
+                  {isFormulaExecution ? (
+                    selectedFormula?.type === 'standard' ? (
+                      <li>Add the final product to your inventory</li>
+                    ) : (
+                      <li>Create a direct sale to the customer</li>
+                    )
+                  ) : (
+                    productionType === 'standard' ? (
+                      <li>Add the final product to your inventory</li>
+                    ) : (
+                      <li>Create a direct sale to the customer</li>
+                    )
+                  )}
+                  <li>Record this production in your history</li>
+                </ul>
+                <p className="text-sm text-yellow-800 mt-3 font-semibold">
+                  This action cannot be undone!
+                </p>
+              </AlertDescription>
+            </Alert>
+
+            <div className="p-4 bg-gray-50 rounded-lg">
+              <h4 className="font-semibold mb-2">Production Summary:</h4>
+              <div className="text-sm space-y-1">
+                <p><strong>Type:</strong> {isFormulaExecution ? (selectedFormula?.type === 'standard' ? 'Standard (TELE)' : 'Custom') : (productionType === 'standard' ? 'Standard (TELE)' : 'Custom')}</p>
+                <p><strong>Total Cost:</strong> {formatCurrency(isFormulaExecution ? formulaIngredients.reduce((sum, ing) => sum + ((ing.currentSellingPrice || ing.sellingPrice) * ing.quantity), 0) : calculateTotalCost())}</p>
+                {((isFormulaExecution && selectedFormula?.type === 'custom') || (!isFormulaExecution && productionType === 'custom')) && sellingPrice && (
+                  <>
+                    <p><strong>Selling Price:</strong> {formatCurrency(parseFloat(sellingPrice))}</p>
+                    <p className="text-green-600"><strong>Expected Profit:</strong> {formatCurrency(parseFloat(sellingPrice) - (isFormulaExecution ? formulaIngredients.reduce((sum, ing) => sum + ((ing.currentSellingPrice || ing.sellingPrice) * ing.quantity), 0) : calculateTotalCost()))}</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button 
+              variant="outline" 
+              onClick={isFormulaExecution ? handleCancelFormulaExecution : handleCancelProduction}
+              className="flex-1"
+            >
+              Cancel Production
+            </Button>
+            <Button 
+              onClick={isFormulaExecution ? handleConfirmFormulaExecution : handleConfirmCompletion}
+              className="flex-1 bg-green-600 hover:bg-green-700"
+            >
+              Yes, Complete Production
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Confirm Save Dialog */}
       <Dialog open={showConfirmSaveDialog} onOpenChange={setShowConfirmSaveDialog}>
         <DialogContent>
@@ -1455,13 +1582,13 @@ export default function Production() {
               Cancel
             </Button>
             <Button onClick={handleSaveFormula} disabled={loading}>
-              {loading ? 'Saving...' : 'Save & Complete'}
+              {loading ? 'Saving...' : 'Save & Continue'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Enhanced Execute Formula Dialog with Scale Selection and Substitution */}
+      {/* Execute Formula Dialog */}
       <Dialog open={showExecuteFormulaDialog} onOpenChange={setShowExecuteFormulaDialog}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
@@ -1494,7 +1621,7 @@ export default function Production() {
               )}
             </div>
 
-            {/* Enhanced Execute Formula Dialog - Ingredients Section */}
+            {/* Ingredients Section */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-base font-semibold">Ingredients</Label>
@@ -1715,13 +1842,13 @@ export default function Production() {
               Cancel
             </Button>
             <Button onClick={executeFormula} disabled={loading}>
-              {loading ? 'Executing...' : selectedFormula?.type === 'standard' ? 'Add to Inventory' : 'Proceed to Payment'}
+              {loading ? 'Executing...' : 'Continue to Confirmation'}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Substitution Dialog with Unit Selection */}
+      {/* Substitution Dialog */}
       <Dialog open={showSubstitutionDialog} onOpenChange={setShowSubstitutionDialog}>
         <DialogContent className="max-w-2xl max-h-[80vh]">
           <DialogHeader>

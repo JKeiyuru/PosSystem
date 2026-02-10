@@ -1,17 +1,15 @@
-// client/src/services/api.js
+// client/src/services/api.js - ADD this method
 
 import axios from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
-
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api',
   headers: {
     'Content-Type': 'application/json'
   }
 });
 
-// Add token to requests
+// Request interceptor
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
@@ -25,7 +23,7 @@ api.interceptors.request.use(
   }
 );
 
-// Handle response errors
+// Response interceptor
 api.interceptors.response.use(
   (response) => response,
   (error) => {
@@ -37,5 +35,11 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// NEW: Get revenue breakdown
+export const getRevenueBreakdown = async (params) => {
+  const response = await api.get('/sales/analytics/revenue-breakdown', { params });
+  return response.data;
+};
 
 export default api;

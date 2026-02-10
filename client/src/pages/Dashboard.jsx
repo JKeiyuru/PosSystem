@@ -1,4 +1,4 @@
-// client/src/pages/Dashboard.jsx - UPDATED with clickable Credit Sales card and all existing dialogs
+// client/src/pages/Dashboard.jsx - COMPLETELY REBUILT with correct revenue calculations
 
 import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
@@ -24,7 +24,9 @@ import {
   CreditCard,
   RefreshCw,
   BarChart3,
-  Wallet
+  Wallet,
+  Clock,
+  CheckCircle
 } from 'lucide-react';
 import { saleService } from '../services/sale.service';
 import { productService } from '../services/product.service';
@@ -40,9 +42,11 @@ export default function Dashboard() {
   const { user } = useAuth();
   const [stats, setStats] = useState({
     todaySales: 0,
-    todayRevenue: 0,
-    todayDebtPayments: 0,
-    todayCreditSales: 0,
+    todayRevenue: 0,          // ACTUAL money received today (cash + mpesa + credit payments)
+    todayCashSales: 0,        // Cash sales only
+    todayMpesaSales: 0,       // M-Pesa sales only
+    todayCreditPayments: 0,   // Credit collections today (payments towards old debts)
+    todayCreditGiven: 0,      // Credit sales today (NOT revenue)
     lowStockCount: 0,
     stockValue: 0
   });
@@ -72,16 +76,17 @@ export default function Dashboard() {
     try {
       setLoading(true);
       
-      const [dailySalesRes, lowStockRes, stockValueRes] = await Promise.all([
+      const [dailySalesRes, lowStockRes, stockValueRes, creditPaymentsRes] = await Promise.all([
         saleService.getDailySales(),
         productService.getLowStock(),
-        stockService.getStockValue()
+        stockService.getStockValue(),
+        api.get('/debts/payments/today') // Get today's credit payments separately
       ]);
 
       const todaySales = dailySalesRes.data.summary;
       const salesList = dailySalesRes.data.sales;
+      const todayCreditPayments = creditPaymentsRes.data.data?.totalPayments || 0;
 
-      let todayDebtPayments = 0;
       let monthlyProfitData = [];
       let topProductsData = [];
       let topCustomersData = [];
@@ -101,30 +106,35 @@ export default function Dashboard() {
       }
 
       try {
-        const debtPaymentsRes = await api.get('/debts/payments/today');
-        todayDebtPayments = debtPaymentsRes.data.data?.totalPayments || 0;
-      } catch (error) {
-        console.warn('Could not fetch debt payments:', error);
-      }
-
-      try {
         const monthlyRes = await api.get('/reports/monthly-profit');
         monthlyProfitData = monthlyRes.data.data?.months || [];
       } catch (error) {
         console.warn('Could not fetch monthly profit data:', error);
       }
 
+      // CRITICAL FIX: Calculate revenue CORRECTLY
+      // Revenue = Cash Sales + M-Pesa Sales + Credit Payments collected today
+      // Credit Sales Today are NOT revenue
+      const todayCashSales = todaySales.cashSales || 0;
+      const todayMpesaSales = todaySales.totalMpesa || 0;
+      const todayCreditGiven = todaySales.totalCredit || 0;
+      
+      // Today's actual revenue (money received)
+      const actualRevenueToday = todayCashSales + todayMpesaSales + todayCreditPayments;
+
       setStats({
-        todaySales: todaySales.salesCount,
-        todayRevenue: todaySales.totalSales, // This is actual revenue (cash + mpesa + credit payments)
-        todayDebtPayments: todaySales.creditPaymentsToday || 0,
-        todayCreditSales: todaySales.totalCredit || 0, // Credit given today (NOT revenue)
-        lowStockCount: lowStockRes.data.length,
-        stockValue: stockValueRes.data.stockValue
+        todaySales: todaySales.salesCount || 0,
+        todayRevenue: actualRevenueToday,
+        todayCashSales: todayCashSales,
+        todayMpesaSales: todayMpesaSales,
+        todayCreditPayments: todayCreditPayments,
+        todayCreditGiven: todayCreditGiven,
+        lowStockCount: lowStockRes.data?.length || 0,
+        stockValue: stockValueRes.data?.stockValue || 0
       });
 
-      setLowStockProducts(lowStockRes.data);
-      setTodaysSales(salesList);
+      setLowStockProducts(lowStockRes.data || []);
+      setTodaysSales(salesList || []);
       setTopProducts(topProductsData);
       setTopCustomers(topCustomersData);
       setMonthlyData(monthlyProfitData);
@@ -200,125 +210,136 @@ export default function Dashboard() {
         </div>
       </div>
 
-{/* Stats Cards - FIXED with proper Credit Sales and Clickable Collections */}
-<div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
-  <Card 
-    className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
-    onClick={() => setShowTodaysSalesDialog(true)}
-  >
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-      <CardTitle className="text-xs sm:text-sm font-medium">Today's Sales</CardTitle>
-      <ShoppingCart className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
-    </CardHeader>
-    <CardContent className="p-3 sm:p-6 pt-0">
-      <div className="text-lg sm:text-2xl font-bold">{stats.todaySales}</div>
-      <p className="text-xs text-muted-foreground">
-        Click to view details
-      </p>
-    </CardContent>
-  </Card>
+      {/* Stats Cards - FIXED REVENUE CALCULATIONS */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-4">
+        {/* Today's Sales Count */}
+        <Card 
+          className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
+          onClick={() => setShowTodaysSalesDialog(true)}
+        >
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+            <CardTitle className="text-xs sm:text-sm font-medium">Today's Sales</CardTitle>
+            <ShoppingCart className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-lg sm:text-2xl font-bold">{stats.todaySales}</div>
+            <p className="text-xs text-muted-foreground">
+              Click to view details
+            </p>
+          </CardContent>
+        </Card>
 
-  <Card className="col-span-2 md:col-span-1 bg-gradient-to-br from-green-50 to-green-100 border-green-200">
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-      <CardTitle className="text-xs sm:text-sm font-medium">Today's Revenue</CardTitle>
-      <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
-    </CardHeader>
-    <CardContent className="p-3 sm:p-6 pt-0">
-      <div className="text-lg sm:text-2xl font-bold text-green-700">
-        {formatCurrency(stats.todayRevenue)}
+        {/* TODAY'S REVENUE - FIXED: Only actual money received */}
+        <Card className="col-span-2 md:col-span-1 bg-gradient-to-br from-green-50 to-green-100 border-green-200">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+            <CardTitle className="text-xs sm:text-sm font-medium">Today's Revenue</CardTitle>
+            <DollarSign className="h-3 w-3 sm:h-4 sm:w-4 text-green-600" />
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-lg sm:text-2xl font-bold text-green-700">
+              {formatCurrency(stats.todayRevenue)}
+            </div>
+            <p className="text-xs text-green-600">
+              Actual money received
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Credit Collections - Money received from old debts */}
+        <Card 
+          className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
+          onClick={() => setShowCreditCollectionsSheet(true)}
+        >
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+            <CardTitle className="text-xs sm:text-sm font-medium">Credit Collections</CardTitle>
+            <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-lg sm:text-2xl font-bold text-blue-700">
+              {formatCurrency(stats.todayCreditPayments)}
+            </div>
+            <p className="text-xs text-blue-600">
+              Money from old debts
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Credit Given Today - NOT revenue yet */}
+        <Card 
+          className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
+          onClick={() => setShowCreditSalesSheet(true)}
+        >
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+            <CardTitle className="text-xs sm:text-sm font-medium">Credit Given Today</CardTitle>
+            <Clock className="h-3 w-3 sm:h-4 sm:w-4 text-orange-600" />
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-lg sm:text-2xl font-bold text-orange-700">
+              {formatCurrency(stats.todayCreditGiven)}
+            </div>
+            <p className="text-xs text-orange-600">
+              Will be revenue when paid
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Stock Value */}
+        <Card className="col-span-2 md:col-span-1">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+            <CardTitle className="text-xs sm:text-sm font-medium">Stock Value</CardTitle>
+            <Package className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-lg sm:text-2xl font-bold">
+              {formatCurrency(stats.stockValue)}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Total inventory
+            </p>
+          </CardContent>
+        </Card>
+
+        {/* Low Stock */}
+        <Card 
+          className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
+          onClick={() => setShowLowStockDialog(true)}
+        >
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
+            <CardTitle className="text-xs sm:text-sm font-medium">Low Stock</CardTitle>
+            <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500" />
+          </CardHeader>
+          <CardContent className="p-3 sm:p-6 pt-0">
+            <div className="text-lg sm:text-2xl font-bold">{stats.lowStockCount}</div>
+            <p className="text-xs text-muted-foreground">
+              Click to view items
+            </p>
+          </CardContent>
+        </Card>
       </div>
-      <p className="text-xs text-green-600">
-        Cash + M-Pesa + Collections
-      </p>
-    </CardContent>
-  </Card>
 
-  {/* Credit Collections Card - CLICKABLE */}
-  <Card 
-    className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
-    onClick={() => setShowCreditCollectionsSheet(true)}
-  >
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-      <CardTitle className="text-xs sm:text-sm font-medium">Credit Collections</CardTitle>
-      <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
-    </CardHeader>
-    <CardContent className="p-3 sm:p-6 pt-0">
-      <div className="text-lg sm:text-2xl font-bold text-blue-700">
-        {formatCurrency(stats.todayDebtPayments)}
-      </div>
-      <p className="text-xs text-blue-600">
-        Click to view history
-      </p>
-    </CardContent>
-  </Card>
-
-  {/* Credit Sales Card - CLICKABLE */}
-  <Card 
-    className="bg-gradient-to-br from-orange-50 to-orange-100 border-orange-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
-    onClick={() => setShowCreditSalesSheet(true)}
-  >
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-      <CardTitle className="text-xs sm:text-sm font-medium">Credit Sales Today</CardTitle>
-      <Wallet className="h-3 w-3 sm:h-4 sm:w-4 text-orange-600" />
-    </CardHeader>
-    <CardContent className="p-3 sm:p-6 pt-0">
-      <div className="text-lg sm:text-2xl font-bold text-orange-700">
-        {formatCurrency(stats.todayCreditSales)}
-      </div>
-      <p className="text-xs text-orange-600">
-        Click to view history
-      </p>
-    </CardContent>
-  </Card>
-
-  <Card className="col-span-2 md:col-span-1">
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-      <CardTitle className="text-xs sm:text-sm font-medium">Stock Value</CardTitle>
-      <Package className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" />
-    </CardHeader>
-    <CardContent className="p-3 sm:p-6 pt-0">
-      <div className="text-lg sm:text-2xl font-bold">
-        {formatCurrency(stats.stockValue)}
-      </div>
-      <p className="text-xs text-muted-foreground">
-        Total inventory
-      </p>
-    </CardContent>
-  </Card>
-
-  <Card 
-    className="cursor-pointer hover:shadow-lg transition-shadow col-span-2 md:col-span-1"
-    onClick={() => setShowLowStockDialog(true)}
-  >
-    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
-      <CardTitle className="text-xs sm:text-sm font-medium">Low Stock</CardTitle>
-      <AlertTriangle className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500" />
-    </CardHeader>
-    <CardContent className="p-3 sm:p-6 pt-0">
-      <div className="text-lg sm:text-2xl font-bold">{stats.lowStockCount}</div>
-      <p className="text-xs text-muted-foreground">
-        Click to view items
-      </p>
-    </CardContent>
-  </Card>
-</div>
-
-      {/* Info Alert - UPDATED explanation */}
-<Alert className="bg-blue-50 border-blue-200">
-  <AlertTitle className="flex items-center text-blue-800">
-    <DollarSign className="h-4 w-4 mr-2" />
-    Revenue Calculation Explained
-  </AlertTitle>
-  <AlertDescription className="text-blue-700 text-sm">
-    <strong>Today's Revenue</strong> = Cash sales + M-Pesa sales + Credit payments collected today. 
-    <br />
-    <strong className="mt-1 inline-block">Credit Sales Today</strong> shows money given on credit (NOT revenue yet - becomes revenue when paid).
-    <br />
-    <strong className="mt-1 inline-block">Credit Collections</strong> shows debt payments received today (IS counted as revenue).
-  </AlertDescription>
-</Alert>
-
-
+      {/* Revenue Breakdown Alert */}
+      <Alert className="bg-blue-50 border-blue-200">
+        <AlertTitle className="flex items-center text-blue-800">
+          <CheckCircle className="h-4 w-4 mr-2" />
+          Revenue Calculation Breakdown
+        </AlertTitle>
+        <AlertDescription className="text-blue-700 text-sm">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div>
+              <strong>Today's Revenue ({formatCurrency(stats.todayRevenue)}) =</strong>
+              <ul className="list-disc list-inside ml-2 mt-1">
+                <li>Cash Sales: {formatCurrency(stats.todayCashSales)}</li>
+                <li>M-Pesa Sales: {formatCurrency(stats.todayMpesaSales)}</li>
+                <li>Credit Collections: {formatCurrency(stats.todayCreditPayments)}</li>
+              </ul>
+            </div>
+            <div>
+              <strong>Credit Given Today: {formatCurrency(stats.todayCreditGiven)}</strong>
+              <p className="text-xs mt-1">This is <strong>NOT</strong> revenue yet. It will only become revenue when payments are made.</p>
+            </div>
+          </div>
+        </AlertDescription>
+      </Alert>
 
       {/* Monthly Revenue & Net Profit Chart */}
       <Card>
@@ -368,7 +389,8 @@ export default function Dashboard() {
           <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm">
             <p className="text-gray-700">
               <strong>Note:</strong> This chart shows total revenue and net profit for each month. 
-              Profit is calculated from each sale's gross profit (selling prices - buying prices). Data shows the last 12 months.
+              Revenue includes cash, M-Pesa, and credit payments received during that month.
+              Credit sales are counted as revenue only when paid.
             </p>
           </div>
         </CardContent>
@@ -508,11 +530,11 @@ export default function Dashboard() {
         onOpenChange={setShowCreditSalesSheet}
       />
 
-{/* Credit collections Sheet */}
+      {/* Credit collections Sheet */}
       <CreditCollectionsSheet 
-  open={showCreditCollectionsSheet}
-  onOpenChange={setShowCreditCollectionsSheet}
-/>
+        open={showCreditCollectionsSheet}
+        onOpenChange={setShowCreditCollectionsSheet}
+      />
 
       {/* Reset Analytics Confirmation Dialog */}
       <Dialog open={showResetDialog} onOpenChange={setShowResetDialog}>
@@ -606,22 +628,20 @@ export default function Dashboard() {
               </Card>
               <Card>
                 <CardContent className="p-3 sm:p-6">
-                  <div className="text-xs sm:text-sm text-gray-600">Total Revenue</div>
+                  <div className="text-xs sm:text-sm text-gray-600">Today's Revenue</div>
                   <div className="text-lg sm:text-2xl font-bold">{formatCurrency(stats.todayRevenue)}</div>
                 </CardContent>
               </Card>
               <Card className="bg-orange-50">
                 <CardContent className="p-3 sm:p-6">
                   <div className="text-xs sm:text-sm text-gray-600">Credit Given</div>
-                  <div className="text-lg sm:text-2xl font-bold text-orange-600">{formatCurrency(stats.todayCreditSales)}</div>
+                  <div className="text-lg sm:text-2xl font-bold text-orange-600">{formatCurrency(stats.todayCreditGiven)}</div>
                 </CardContent>
               </Card>
-              <Card className="col-span-2 md:col-span-1">
+              <Card className="col-span-2 md:col-span-1 bg-blue-50">
                 <CardContent className="p-3 sm:p-6">
-                  <div className="text-xs sm:text-sm text-gray-600">Average Sale</div>
-                  <div className="text-lg sm:text-2xl font-bold">
-                    {formatCurrency(todaysSales.length > 0 ? stats.todayRevenue / todaysSales.length : 0)}
-                  </div>
+                  <div className="text-xs sm:text-sm text-gray-600">Collections</div>
+                  <div className="text-lg sm:text-2xl font-bold text-blue-600">{formatCurrency(stats.todayCreditPayments)}</div>
                 </CardContent>
               </Card>
             </div>
@@ -636,6 +656,7 @@ export default function Dashboard() {
                     <TableHead className="text-xs sm:text-sm hidden md:table-cell">Payment</TableHead>
                     <TableHead className="text-xs sm:text-sm">Amount</TableHead>
                     <TableHead className="text-xs sm:text-sm">Status</TableHead>
+                    <TableHead className="text-xs sm:text-sm">Revenue?</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -650,6 +671,13 @@ export default function Dashboard() {
                         <Badge variant={sale.paymentStatus === 'paid' ? 'success' : 'warning'} className="text-xs">
                           {sale.paymentStatus}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {sale.paymentMethod === 'credit' ? (
+                          <Badge variant="outline" className="text-xs">Not Yet</Badge>
+                        ) : (
+                          <Badge variant="success" className="text-xs">Yes</Badge>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
