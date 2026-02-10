@@ -1,9 +1,9 @@
 // server/controllers/productionFormula.controller.js - UPDATED with ingredient addition endpoint
 
-import ProductionFormula from '../models/ProductionFormula.js';
-import Product from '../models/Product.js';
-import Production from '../models/Production.js';
-import Sale from '../models/Sale.js';
+import ProductionFormula from '../models/ProductionFormula.model.js';
+import Product from '../models/Product.model.js';
+import Production from '../models/Production.model.js';
+import Sale from '../models/Sale.model.js';
 
 export const createFormula = async (req, res) => {
   try {
