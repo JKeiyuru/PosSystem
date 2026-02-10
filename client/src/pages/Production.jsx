@@ -1,4 +1,4 @@
-// client/src/pages/Production.jsx - COMPLETE WITH CONFIRMATION BEFORE COMPLETION
+// client/src/pages/Production.jsx - COMPLETE WITH ADD INGREDIENT TO FORMULA & PRODUCTION DETAILS VIEW
 import { useState, useEffect, useRef } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -22,7 +22,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { Search, Plus, Trash2, Play, Square, Save, Zap, Package, DollarSign, ShoppingCart, AlertCircle, RefreshCw, ArrowRightLeft } from 'lucide-react';
+import { Search, Plus, Trash2, Play, Square, Save, Zap, Package, DollarSign, ShoppingCart, AlertCircle, RefreshCw, ArrowRightLeft, Eye } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { productionService } from '../services/production.service';
 import { formatCurrency, formatDateTime } from '../lib/utils';
@@ -70,17 +70,28 @@ export default function Production() {
   
   const [activeTab, setActiveTab] = useState('manual');
   
-  // New substitution state variables
+  // Substitution state variables
   const [formulaIngredients, setFormulaIngredients] = useState([]);
   const [showSubstitutionDialog, setShowSubstitutionDialog] = useState(false);
   const [substitutionIndex, setSubstitutionIndex] = useState(null);
   const [substitutionSearch, setSubstitutionSearch] = useState('');
   const [substitutionProducts, setSubstitutionProducts] = useState([]);
   
-  // NEW: Confirmation dialog state
+  // Confirmation dialog state
   const [showConfirmCompletionDialog, setShowConfirmCompletionDialog] = useState(false);
   const [pendingProductionData, setPendingProductionData] = useState(null);
   const [isFormulaExecution, setIsFormulaExecution] = useState(false);
+  
+  // NEW: Add ingredient to formula states
+  const [showAddIngredientDialog, setShowAddIngredientDialog] = useState(false);
+  const [addIngredientSearch, setAddIngredientSearch] = useState('');
+  const [addIngredientProducts, setAddIngredientProducts] = useState([]);
+  const [newlyAddedIngredients, setNewlyAddedIngredients] = useState([]);
+  const [showSaveAddedIngredientsDialog, setShowSaveAddedIngredientsDialog] = useState(false);
+  
+  // NEW: Production details view
+  const [showProductionDetailsDialog, setShowProductionDetailsDialog] = useState(false);
+  const [selectedProductionDetails, setSelectedProductionDetails] = useState(null);
   
   const receiptRef = useRef();
 
@@ -174,6 +185,18 @@ export default function Production() {
     return () => clearTimeout(delayDebounceFn);
   }, [substitutionSearch, allProducts]);
 
+  // NEW: Search for products to add
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(() => {
+      if (addIngredientSearch) {
+        fetchAddIngredientProducts();
+      } else {
+        setAddIngredientProducts(allProducts);
+      }
+    }, 300);
+    return () => clearTimeout(delayDebounceFn);
+  }, [addIngredientSearch, allProducts]);
+
   const fetchProducts = async () => {
     try {
       const response = await productService.getAll({ search: searchQuery });
@@ -201,6 +224,16 @@ export default function Production() {
       setSubstitutionProducts(response.data);
     } catch (error) {
       console.error('Error fetching substitution products:', error);
+    }
+  };
+
+  // NEW: Fetch products for adding
+  const fetchAddIngredientProducts = async () => {
+    try {
+      const response = await productService.getAll({ search: addIngredientSearch });
+      setAddIngredientProducts(response.data);
+    } catch (error) {
+      console.error('Error fetching products:', error);
     }
   };
 
@@ -328,7 +361,6 @@ export default function Production() {
     alert('Production started! Fill in the output details and click "Complete Production" when ready.');
   };
 
-  // NEW: Handle initiate completion - shows confirmation dialog instead of immediate completion
   const handleInitiateCompletion = () => {
     if (productionType === 'standard') {
       if (!finalProduct) {
@@ -366,17 +398,14 @@ export default function Production() {
 
   const handleSkipSaveFormula = () => {
     setShowConfirmSaveDialog(false);
-    // NEW: Show final confirmation dialog instead of proceeding directly
     showFinalConfirmation();
   };
 
-  // NEW: Show final confirmation before completing production
   const showFinalConfirmation = () => {
     setIsFormulaExecution(false);
     setShowConfirmCompletionDialog(true);
   };
 
-  // NEW: Handle final confirmation to complete
   const handleConfirmCompletion = () => {
     setShowConfirmCompletionDialog(false);
     
@@ -387,7 +416,6 @@ export default function Production() {
     }
   };
 
-  // NEW: Handle cancel production
   const handleCancelProduction = () => {
     setShowConfirmCompletionDialog(false);
     
@@ -560,7 +588,6 @@ export default function Production() {
       setFormulaName('');
       fetchFormulas();
       
-      // NEW: Show final confirmation after saving formula
       showFinalConfirmation();
     } catch (error) {
       console.error('Error saving formula:', error);
@@ -579,12 +606,14 @@ export default function Production() {
       originalProductName: ing.productName,
       originalQuantity: ing.quantity,
       isSubstituted: false,
+      isNewlyAdded: false,
       currentSellingPrice: ing.currentSellingPrice || ing.sellingPrice,
       currentBuyingPrice: ing.currentBuyingPrice || ing.buyingPrice,
       availableInUnit: ing.availableQuantity
     }));
     
     setFormulaIngredients(workingIngredients);
+    setNewlyAddedIngredients([]);
     setShowExecuteFormulaDialog(true);
     setFormulaScale('full');
     setCustomOutput({ bags: '', kgs: '' });
@@ -644,6 +673,62 @@ export default function Production() {
       console.error('Error substituting ingredient:', error);
       alert('Error loading product details');
     }
+  };
+
+  // NEW: Open add ingredient dialog
+  const openAddIngredientDialog = () => {
+    setAddIngredientSearch('');
+    setAddIngredientProducts(allProducts);
+    setShowAddIngredientDialog(true);
+  };
+
+  // NEW: Add new ingredient to formula
+  const addNewIngredientToFormula = async (product) => {
+    try {
+      // Check if already exists
+      const exists = formulaIngredients.find(ing => ing.product === product._id);
+      if (exists) {
+        alert('This ingredient is already in the formula');
+        return;
+      }
+
+      const response = await productService.getById(product._id);
+      const fullProduct = response.data;
+
+      const newIngredient = {
+        product: fullProduct._id,
+        productName: fullProduct.name,
+        quantity: '',
+        unit: fullProduct.baseUnit,
+        isSubstituted: false,
+        isNewlyAdded: true,
+        availableQuantity: fullProduct.quantity,
+        baseUnit: fullProduct.baseUnit,
+        sellingPrice: fullProduct.sellingPrice,
+        buyingPrice: fullProduct.buyingPrice,
+        currentSellingPrice: fullProduct.sellingPrice,
+        currentBuyingPrice: fullProduct.buyingPrice,
+        useBuyingPrice: false,
+        hasMultipleUnits: fullProduct.hasMultipleUnits,
+        subUnits: fullProduct.subUnits || [],
+        availableInUnit: fullProduct.quantity
+      };
+
+      setFormulaIngredients([...formulaIngredients, newIngredient]);
+      setNewlyAddedIngredients([...newlyAddedIngredients, newIngredient]);
+      setShowAddIngredientDialog(false);
+      
+      alert(`Added new ingredient: ${fullProduct.name}`);
+    } catch (error) {
+      console.error('Error adding ingredient:', error);
+      alert('Error loading product details');
+    }
+  };
+
+  // NEW: Remove newly added ingredient
+  const removeNewlyAddedIngredient = (productId) => {
+    setFormulaIngredients(formulaIngredients.filter(ing => ing.product !== productId));
+    setNewlyAddedIngredients(newlyAddedIngredients.filter(ing => ing.product !== productId));
   };
 
   const updateFormulaIngredientQuantity = (index, newQuantity) => {
@@ -715,7 +800,6 @@ export default function Production() {
     }
   };
 
-  // NEW: Modified to show confirmation dialog for formula execution
   const executeFormula = async () => {
     if (!selectedFormula) return;
 
@@ -748,12 +832,52 @@ export default function Production() {
       }
     }
 
-    // NEW: Show confirmation dialog before executing
+    // NEW: Check if there are newly added ingredients
+    if (newlyAddedIngredients.length > 0) {
+      setShowSaveAddedIngredientsDialog(true);
+    } else {
+      // No new ingredients, proceed to confirmation
+      setIsFormulaExecution(true);
+      setShowConfirmCompletionDialog(true);
+    }
+  };
+
+  // NEW: Handle save added ingredients to formula
+  const handleSaveAddedIngredients = async (shouldSave) => {
+    setShowSaveAddedIngredientsDialog(false);
+
+    if (shouldSave) {
+      try {
+        setLoading(true);
+
+        // Update formula with new ingredients
+        const updatedIngredients = formulaIngredients.map(ing => ({
+          product: ing.product,
+          productName: ing.productName,
+          quantity: ing.quantity,
+          unit: ing.unit,
+          useBuyingPrice: ing.useBuyingPrice || false
+        }));
+
+        await api.put(`/production-formulas/${selectedFormula._id}`, {
+          ingredients: updatedIngredients
+        });
+
+        alert('Formula updated with new ingredients!');
+        fetchFormulas();
+      } catch (error) {
+        console.error('Error updating formula:', error);
+        alert('Error updating formula: ' + (error.response?.data?.message || error.message));
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    // Proceed to confirmation
     setIsFormulaExecution(true);
     setShowConfirmCompletionDialog(true);
   };
 
-  // NEW: Handle formula execution confirmation
   const handleConfirmFormulaExecution = () => {
     setShowConfirmCompletionDialog(false);
     
@@ -764,7 +888,6 @@ export default function Production() {
     }
   };
 
-  // NEW: Handle cancel formula execution
   const handleCancelFormulaExecution = () => {
     setShowConfirmCompletionDialog(false);
     
@@ -772,6 +895,7 @@ export default function Production() {
       setShowExecuteFormulaDialog(false);
       setSelectedFormula(null);
       setFormulaIngredients([]);
+      setNewlyAddedIngredients([]);
       setFormulaScale('full');
       setCustomOutput({ bags: '', kgs: '' });
       alert('Formula execution cancelled. No stock has been deducted.');
@@ -839,6 +963,7 @@ export default function Production() {
       setFormulaScale('full');
       setCustomOutput({ bags: '', kgs: '' });
       setFormulaIngredients([]);
+      setNewlyAddedIngredients([]);
       
       fetchProducts();
       fetchAllProducts();
@@ -909,6 +1034,7 @@ export default function Production() {
     setFormulaScale('full');
     setCustomOutput({ bags: '', kgs: '' });
     setFormulaIngredients([]);
+    setNewlyAddedIngredients([]);
   };
 
   const getCurrentPrice = (ing) => {
@@ -952,6 +1078,21 @@ export default function Production() {
       return Math.floor(ingredient.availableQuantity * subUnit.conversionRate);
     }
     return ingredient.availableQuantity;
+  };
+
+  // NEW: View production details
+  const viewProductionDetails = async (productionId) => {
+    try {
+      setLoading(true);
+      const response = await productionService.getById(productionId);
+      setSelectedProductionDetails(response.data);
+      setShowProductionDetailsDialog(true);
+    } catch (error) {
+      console.error('Error fetching production details:', error);
+      alert('Error loading production details');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const totalPaid = getTotalPaid();
@@ -1423,6 +1564,7 @@ export default function Production() {
                 <TableHead>Revenue</TableHead>
                 <TableHead>Profit</TableHead>
                 <TableHead>Performed By</TableHead>
+                <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1447,6 +1589,15 @@ export default function Production() {
                     {prod.profit ? formatCurrency(prod.profit) : '-'}
                   </TableCell>
                   <TableCell>{prod.performedByName}</TableCell>
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => viewProductionDetails(prod._id)}
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -1460,7 +1611,149 @@ export default function Production() {
         </CardContent>
       </Card>
 
-      {/* NEW: Final Confirmation Dialog Before Completing Production */}
+      {/* NEW: Production Details Dialog */}
+      <Dialog open={showProductionDetailsDialog} onOpenChange={setShowProductionDetailsDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Production Details</DialogTitle>
+          </DialogHeader>
+
+          {selectedProductionDetails && (
+            <div className="space-y-6">
+              {/* Header Info */}
+              <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div>
+                  <p className="text-sm text-gray-600">Production Number</p>
+                  <p className="font-semibold">{selectedProductionDetails.productionNumber}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Date</p>
+                  <p className="font-semibold">{formatDateTime(selectedProductionDetails.createdAt)}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Type</p>
+                  <p className="font-semibold">
+                    {selectedProductionDetails.type === 'standard' ? 'Standard (TELE)' : 'Custom Combination'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Performed By</p>
+                  <p className="font-semibold">{selectedProductionDetails.performedByName}</p>
+                </div>
+              </div>
+
+              {/* Ingredients Table */}
+              <div>
+                <h3 className="font-semibold mb-3">Ingredients Used</h3>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Quantity</TableHead>
+                      <TableHead>Unit</TableHead>
+                      <TableHead>Unit Cost</TableHead>
+                      <TableHead>Total Cost</TableHead>
+                      <TableHead>Price Type</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {selectedProductionDetails.ingredients?.map((ing, index) => (
+                      <TableRow key={index}>
+                        <TableCell className="font-medium">
+                          {ing.productName}
+                          {ing.wasSubstituted && (
+                            <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">
+                              Substituted
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell>{ing.quantity}</TableCell>
+                        <TableCell>{ing.unit}</TableCell>
+                        <TableCell>{formatCurrency(ing.unitCost)}</TableCell>
+                        <TableCell>{formatCurrency(ing.unitCost * ing.quantity)}</TableCell>
+                        <TableCell>
+                          <span className={`text-xs px-2 py-1 rounded ${ing.usedBuyingPrice ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>
+                            {ing.usedBuyingPrice ? 'Buying' : 'Selling'}
+                          </span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {/* Production Summary */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-gray-600">Total Cost</div>
+                    <div className="text-2xl font-bold">{formatCurrency(selectedProductionDetails.totalCost)}</div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="text-sm text-gray-600">Output</div>
+                    <div className="text-2xl font-bold">
+                      {selectedProductionDetails.outputBags}b + {selectedProductionDetails.outputKgs}kg
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {selectedProductionDetails.totalRevenue > 0 && (
+                  <>
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="text-sm text-gray-600">Revenue</div>
+                        <div className="text-2xl font-bold text-green-600">
+                          {formatCurrency(selectedProductionDetails.totalRevenue)}
+                        </div>
+                      </CardContent>
+                    </Card>
+
+                    <Card>
+                      <CardContent className="pt-6">
+                        <div className="text-sm text-gray-600">Profit</div>
+                        <div className="text-2xl font-bold text-purple-600">
+                          {formatCurrency(selectedProductionDetails.profit)}
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </>
+                )}
+              </div>
+
+              {/* Output Details */}
+              <div className="p-4 bg-blue-50 rounded-lg">
+                <h4 className="font-semibold mb-2">Output Details</h4>
+                {selectedProductionDetails.type === 'standard' ? (
+                  <div className="space-y-1 text-sm">
+                    <p><strong>Final Product:</strong> {selectedProductionDetails.finalProductName}</p>
+                    <p><strong>Quantity:</strong> {selectedProductionDetails.outputBags} bags + {selectedProductionDetails.outputKgs} kgs</p>
+                    <p><strong>Cost per Unit:</strong> {formatCurrency(selectedProductionDetails.costPerUnit)}</p>
+                  </div>
+                ) : (
+                  <div className="space-y-1 text-sm">
+                    <p><strong>Customer:</strong> {selectedProductionDetails.customerName}</p>
+                    <p><strong>Product Name:</strong> {selectedProductionDetails.customOutputName}</p>
+                    <p><strong>Selling Price:</strong> {formatCurrency(selectedProductionDetails.sellingPrice)}</p>
+                    <p><strong>Sold Immediately:</strong> {selectedProductionDetails.soldImmediately ? 'Yes' : 'No'}</p>
+                  </div>
+                )}
+              </div>
+
+              {selectedProductionDetails.notes && (
+                <div className="p-4 bg-gray-50 rounded-lg">
+                  <h4 className="font-semibold mb-2">Notes</h4>
+                  <p className="text-sm">{selectedProductionDetails.notes}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Final Confirmation Dialog */}
       <Dialog open={showConfirmCompletionDialog} onOpenChange={setShowConfirmCompletionDialog}>
         <DialogContent>
           <DialogHeader>
@@ -1621,30 +1914,57 @@ export default function Production() {
               )}
             </div>
 
+            {/* NEW: Add Ingredient Button */}
+            <div className="flex justify-end">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={openAddIngredientDialog}
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Add Ingredient
+              </Button>
+            </div>
+
             {/* Ingredients Section */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label className="text-base font-semibold">Ingredients</Label>
-                {formulaIngredients.some(ing => ing.isSubstituted) && (
-                  <span className="text-xs text-amber-600 font-medium">
-                    ⚠️ Contains substitutions
-                  </span>
-                )}
+                <div className="flex gap-2">
+                  {formulaIngredients.some(ing => ing.isSubstituted) && (
+                    <span className="text-xs text-amber-600 font-medium">
+                      ⚠️ Contains substitutions
+                    </span>
+                  )}
+                  {newlyAddedIngredients.length > 0 && (
+                    <span className="text-xs text-green-600 font-medium">
+                      ✓ {newlyAddedIngredients.length} new ingredient{newlyAddedIngredients.length > 1 ? 's' : ''} added
+                    </span>
+                  )}
+                </div>
               </div>
               
               <div className="border rounded-lg divide-y">
                 {formulaIngredients.map((ing, index) => (
-                  <div key={index} className={`p-3 ${ing.isSubstituted ? 'bg-amber-50' : 'bg-white'}`}>
+                  <div key={index} className={`p-3 ${ing.isSubstituted ? 'bg-amber-50' : ing.isNewlyAdded ? 'bg-green-50' : 'bg-white'}`}>
                     <div className="flex items-start justify-between gap-2 mb-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           {ing.isSubstituted && (
                             <ArrowRightLeft className="h-4 w-4 text-amber-600 flex-shrink-0" />
                           )}
+                          {ing.isNewlyAdded && (
+                            <Plus className="h-4 w-4 text-green-600 flex-shrink-0" />
+                          )}
                           <p className="font-medium truncate">{ing.productName}</p>
                           {ing.isSubstituted && (
                             <span className="text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded">
                               Substituted
+                            </span>
+                          )}
+                          {ing.isNewlyAdded && (
+                            <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">
+                              New
                             </span>
                           )}
                         </div>
@@ -1657,7 +1977,17 @@ export default function Production() {
                       </div>
                       
                       <div className="flex flex-col gap-1">
-                        {!ing.isSubstituted ? (
+                        {ing.isNewlyAdded ? (
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => removeNewlyAddedIngredient(ing.product)}
+                            className="whitespace-nowrap"
+                          >
+                            <Trash2 className="h-3 w-3 mr-1" />
+                            Remove
+                          </Button>
+                        ) : !ing.isSubstituted ? (
                           <Button
                             size="sm"
                             variant="outline"
@@ -1754,9 +2084,9 @@ export default function Production() {
             <Alert>
               <AlertCircle className="h-4 w-4" />
               <AlertDescription>
-                {formulaIngredients.some(ing => ing.isSubstituted) ? (
+                {formulaIngredients.some(ing => ing.isSubstituted || ing.isNewlyAdded) ? (
                   <span className="text-amber-700">
-                    ⚠️ You've made substitutions. You can adjust quantities for any ingredient. The original formula will remain unchanged.
+                    ⚠️ You've made changes to the formula (substitutions or additions). You can adjust quantities for any ingredient. The original formula will remain unchanged unless you choose to save the additions.
                   </span>
                 ) : (
                   <span>
@@ -1848,6 +2178,135 @@ export default function Production() {
         </DialogContent>
       </Dialog>
 
+      {/* NEW: Add Ingredient Dialog */}
+      <Dialog open={showAddIngredientDialog} onOpenChange={setShowAddIngredientDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Add New Ingredient to Formula</DialogTitle>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <Alert className="bg-blue-50 border-blue-200">
+              <AlertDescription>
+                <p className="text-sm text-blue-800">
+                  Select a product to add to this formula execution. You'll be asked later if you want to save this addition to the formula permanently.
+                </p>
+              </AlertDescription>
+            </Alert>
+
+            <div className="relative">
+              <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+              <Input
+                placeholder="Search for product to add..."
+                value={addIngredientSearch}
+                onChange={(e) => setAddIngredientSearch(e.target.value)}
+                className="pl-10"
+              />
+            </div>
+
+            <div className="border rounded-lg max-h-[400px] overflow-y-auto">
+              <div className="grid grid-cols-1 gap-2 p-2">
+                {addIngredientProducts.map((product) => (
+                  <Card
+                    key={product._id}
+                    className="cursor-pointer hover:shadow-md hover:border-blue-500 transition-all"
+                    onClick={() => addNewIngredientToFormula(product)}
+                  >
+                    <CardContent className="p-3">
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1">
+                          <h3 className="font-semibold text-sm">{product.name}</h3>
+                          <p className="text-xs text-gray-600 mt-1">
+                            Stock: {product.quantity} {product.baseUnit}
+                          </p>
+                          <div className="flex gap-3 mt-1">
+                            <p className="text-xs text-blue-600">
+                              Sell: {formatCurrency(product.sellingPrice)}
+                            </p>
+                            <p className="text-xs text-green-600">
+                              Buy: {formatCurrency(product.buyingPrice)}
+                            </p>
+                          </div>
+                          {product.hasMultipleUnits && product.subUnits.length > 0 && (
+                            <p className="text-xs text-purple-600 mt-1">
+                              ✓ Multiple units available
+                            </p>
+                          )}
+                        </div>
+                        <Button size="sm" variant="ghost">
+                          Add
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+              
+              {addIngredientProducts.length === 0 && (
+                <div className="text-center py-8 text-gray-500">
+                  No products found
+                </div>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+   {/* NEW: Save Added Ingredients Dialog */}
+      <Dialog open={showSaveAddedIngredientsDialog} onOpenChange={setShowSaveAddedIngredientsDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Save New Ingredients to Formula?</DialogTitle>
+          </DialogHeader>
+          
+          <div className="py-4 space-y-4">
+            <Alert className="bg-blue-50 border-blue-200">
+              <AlertDescription>
+                <p className="text-sm text-blue-800 mb-2">
+                  You've added {newlyAddedIngredients.length} new ingredient{newlyAddedIngredients.length > 1 ? 's' : ''} to this formula execution:
+                </p>
+                <ul className="list-disc list-inside text-sm text-blue-700 space-y-1">
+                  {newlyAddedIngredients.map((ing, idx) => (
+                    <li key={idx}>
+                      {ing.productName} - {ing.quantity} {ing.unit}
+                    </li>
+                  ))}
+                </ul>
+              </AlertDescription>
+            </Alert>
+
+            <p className="text-sm text-gray-700">
+              Would you like to update the saved formula to include these new ingredients? This will make them available automatically the next time you execute this formula.
+            </p>
+
+            <div className="p-3 bg-gray-50 rounded-lg border">
+              <p className="text-xs text-gray-600 mb-2">If you choose:</p>
+              <ul className="text-xs text-gray-700 space-y-1">
+                <li>✓ <strong>Yes, Save to Formula:</strong> The formula will be permanently updated</li>
+                <li>✓ <strong>No, Just This Time:</strong> Production will proceed but formula stays unchanged</li>
+              </ul>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => handleSaveAddedIngredients(false)}
+              className="flex-1"
+            >
+              No, Just This Time
+            </Button>
+            <Button 
+              onClick={() => handleSaveAddedIngredients(true)}
+              className="flex-1"
+            >
+              <Save className="mr-2 h-4 w-4" />
+              Yes, Save to Formula
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Substitution Dialog */}
       <Dialog open={showSubstitutionDialog} onOpenChange={setShowSubstitutionDialog}>
         <DialogContent className="max-w-2xl max-h-[80vh]">
@@ -1857,22 +2316,21 @@ export default function Production() {
           
           <div className="space-y-4">
             {substitutionIndex !== null && formulaIngredients[substitutionIndex] && (
-              <div className="p-3 bg-gray-50 rounded-lg">
-                <p className="text-sm text-gray-600 mb-1">Replacing:</p>
-                <p className="font-semibold">{formulaIngredients[substitutionIndex].productName}</p>
-                <p className="text-sm text-gray-600 mt-1">
-                  Current quantity: {formulaIngredients[substitutionIndex].quantity} {formulaIngredients[substitutionIndex].unit}
-                </p>
-                <p className="text-xs text-blue-600 mt-1">
-                  You can change the quantity and unit after substituting
-                </p>
-              </div>
+              <Alert>
+                <AlertDescription>
+                  <p className="font-semibold mb-1">Original Ingredient:</p>
+                  <p className="text-sm">
+                    {formulaIngredients[substitutionIndex].productName} - 
+                    {formulaIngredients[substitutionIndex].quantity} {formulaIngredients[substitutionIndex].unit}
+                  </p>
+                </AlertDescription>
+              </Alert>
             )}
 
             <div className="relative">
               <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
               <Input
-                placeholder="Search for replacement product..."
+                placeholder="Search for substitute product..."
                 value={substitutionSearch}
                 onChange={(e) => setSubstitutionSearch(e.target.value)}
                 className="pl-10"
@@ -1927,73 +2385,56 @@ export default function Production() {
         </DialogContent>
       </Dialog>
 
+      {/* Payment Dialog */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Payment Details</DialogTitle>
+            <DialogTitle>Complete Sale - Payment</DialogTitle>
           </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="p-4 bg-gray-50 rounded-lg">
-              <div className="flex justify-between text-lg font-bold">
-                <span>Total Amount:</span>
-                <span>{formatCurrency(totalRevenue)}</span>
-              </div>
-              <div className="text-sm text-gray-600 mt-1">
-                {selectedFormula ? (
-                  <>{selectedFormula.name} - {customerName || selectedFormula.customerName}</>
-                ) : (
-                  <>{customerName} - {customOutputName}</>
-                )}
+          <div className="space-y-4 py-4">
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <div className="flex justify-between mb-2">
+                <span className="font-semibold">Total Amount:</span>
+                <span className="text-2xl font-bold text-blue-600">
+                  {formatCurrency(parseFloat(sellingPrice || 0))}
+                </span>
               </div>
             </div>
 
             <div className="space-y-3">
-              <div className="flex justify-between items-center">
-                <Label>Payment Methods</Label>
-                <Button size="sm" variant="outline" onClick={addPaymentMethod}>
-                  <Plus className="h-4 w-4 mr-1" />
-                  Add Method
-                </Button>
-              </div>
-
+              <Label className="text-base font-semibold">Payment Methods</Label>
+              
               {splitPayments.map((payment, index) => (
-                <div key={index} className="flex items-end space-x-2">
-                  <div className="flex-1 space-y-2">
-                    <Label>Method {splitPayments.length > 1 ? index + 1 : ''}</Label>
-                    <Select 
-                      value={payment.method} 
-                      onValueChange={(value) => updatePaymentMethod(index, 'method', value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="cash">Cash</SelectItem>
-                        <SelectItem value="mpesa_paybill">M-Pesa (Paybill)</SelectItem>
-                        <SelectItem value="mpesa_beth">M-Pesa (Beth)</SelectItem>
-                        <SelectItem value="mpesa_martin">M-Pesa (Martin)</SelectItem>
-                        <SelectItem value="credit">Credit</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
+                <div key={index} className="flex gap-2">
+                  <Select
+                    value={payment.method}
+                    onValueChange={(value) => updatePaymentMethod(index, 'method', value)}
+                  >
+                    <SelectTrigger className="w-[140px]">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="mpesa">M-Pesa</SelectItem>
+                      <SelectItem value="bank">Bank</SelectItem>
+                      <SelectItem value="credit">Credit</SelectItem>
+                    </SelectContent>
+                  </Select>
 
-                  <div className="flex-1 space-y-2">
-                    <Label>Amount</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      placeholder="0.00"
-                      value={payment.amount}
-                      onChange={(e) => updatePaymentMethod(index, 'amount', e.target.value)}
-                      disabled={payment.method === 'credit'}
-                    />
-                  </div>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    placeholder="Amount"
+                    value={payment.amount}
+                    onChange={(e) => updatePaymentMethod(index, 'amount', e.target.value)}
+                    className="flex-1"
+                  />
 
                   {splitPayments.length > 1 && (
                     <Button
                       size="icon"
-                      variant="destructive"
+                      variant="ghost"
                       onClick={() => removePaymentMethod(index)}
                     >
                       <Trash2 className="h-4 w-4" />
@@ -2001,76 +2442,81 @@ export default function Production() {
                   )}
                 </div>
               ))}
-            </div>
 
-            <div className="p-4 bg-blue-50 rounded-lg space-y-2">
-              <div className="flex justify-between">
-                <span>Total Paid:</span>
-                <span className="font-bold text-green-600">{formatCurrency(totalPaid)}</span>
-              </div>
-              {totalPaid > totalRevenue && (
-                <div className="flex justify-between">
-                  <span>Change:</span>
-                  <span className="font-bold text-blue-600">{formatCurrency(change)}</span>
-                </div>
-              )}
-              {totalPaid < totalRevenue && (
-                <div className="flex justify-between">
-                  <span>Remaining:</span>
-                  <span className="font-bold text-red-600">{formatCurrency(totalRevenue - totalPaid)}</span>
-                </div>
-              )}
-            </div>
-
-            <div className="flex space-x-2">
-              <Button variant="outline" className="flex-1" onClick={() => setShowPaymentDialog(false)}>
-                Cancel
-              </Button>
-              <Button 
-                className="flex-1" 
-                onClick={selectedFormula ? handleCompleteFormulaSale : handleCompleteSale} 
-                disabled={loading}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={addPaymentMethod}
+                className="w-full"
               >
-                {loading ? 'Processing...' : 'Complete Sale'}
+                <Plus className="h-4 w-4 mr-2" />
+                Add Payment Method
               </Button>
+            </div>
+
+            <div className="p-4 bg-gray-50 rounded-lg space-y-2">
+              <div className="flex justify-between text-sm">
+                <span>Total:</span>
+                <span className="font-semibold">{formatCurrency(parseFloat(sellingPrice || 0))}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span>Paid:</span>
+                <span className="font-semibold text-green-600">{formatCurrency(totalPaid)}</span>
+              </div>
+              {change > 0 && (
+                <div className="flex justify-between text-sm border-t pt-2">
+                  <span>Change:</span>
+                  <span className="font-semibold text-blue-600">{formatCurrency(change)}</span>
+                </div>
+              )}
+              {totalPaid < parseFloat(sellingPrice || 0) && (
+                <div className="flex justify-between text-sm text-red-600 border-t pt-2">
+                  <span>Remaining:</span>
+                  <span className="font-semibold">
+                    {formatCurrency(parseFloat(sellingPrice || 0) - totalPaid)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPaymentDialog(false)}>
+              Cancel
+            </Button>
+            <Button 
+              onClick={isFormulaExecution ? handleCompleteFormulaSale : handleCompleteSale}
+              disabled={loading}
+            >
+              {loading ? 'Processing...' : 'Complete Sale'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 
+      {/* Receipt Dialog */}
       <Dialog open={showReceipt} onOpenChange={setShowReceipt}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Sale Completed!</DialogTitle>
+            <DialogTitle>Sale Completed</DialogTitle>
           </DialogHeader>
-          
-          <div className="space-y-4">
-            <div className="text-center py-4">
-              <div className="text-6xl mb-4">✓</div>
-              <h3 className="text-xl font-bold mb-2">Transaction Successful</h3>
-              <p className="text-gray-600">Receipt #{completedSale?.saleNumber}</p>
-            </div>
 
-            <div className="hidden">
-              {completedSale && (
-                <Receipt 
-                  ref={receiptRef} 
-                  sale={completedSale} 
-                  businessInfo={businessInfo}
-                />
-              )}
-            </div>
+          <div ref={receiptRef}>
+            {completedSale && businessInfo && (
+              <Receipt sale={completedSale} businessInfo={businessInfo} />
+            )}
+          </div>
 
-            <ReceiptActions 
+          {completedSale && (
+            <ReceiptActions
               receiptRef={receiptRef}
               sale={completedSale}
-              businessInfo={businessInfo}
               onClose={() => {
                 setShowReceipt(false);
                 setCompletedSale(null);
               }}
             />
-          </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
