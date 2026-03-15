@@ -1,4 +1,5 @@
-// server/controllers/production.controller.js - ENHANCED with Direct Sales
+// server/controllers/production.controller.js
+// VERSION 3: Complete with reverseProduction and completeProductionFromFormula
 
 import Production from '../models/Production.model.js';
 import ProductionFormula from '../models/ProductionFormula.model.js';
@@ -13,14 +14,14 @@ export const completeProduction = async (req, res) => {
   session.startTransaction();
 
   try {
-    const { 
+    const {
       type,
-      ingredients, 
-      finalProduct, 
+      ingredients,
+      finalProduct,
       customerName,
       customOutputName,
-      outputQuantity, 
-      outputBags, 
+      outputQuantity,
+      outputBags,
       outputKgs,
       sellingPrice,
       sellImmediately,
@@ -31,21 +32,15 @@ export const completeProduction = async (req, res) => {
     if (!ingredients || ingredients.length === 0) {
       throw new Error('Production must have at least one ingredient');
     }
-
     if (type === 'standard' && !finalProduct) {
       throw new Error('Final product is required for standard production');
     }
-
     if (type === 'custom' && (!customerName || !customOutputName)) {
       throw new Error('Customer name and output name are required for custom production');
     }
-
-    // For standard production, output is required
     if (type === 'standard' && !outputQuantity) {
       throw new Error('Output quantity is required for standard production');
     }
-
-    // For custom production, selling price is required
     if (type === 'custom' && (!sellingPrice || parseFloat(sellingPrice) <= 0)) {
       throw new Error('Selling price is required for custom production');
     }
@@ -53,40 +48,29 @@ export const completeProduction = async (req, res) => {
     let totalCost = 0;
     const processedIngredients = [];
 
-    // Process each ingredient - deduct stock with multi-unit support
     for (const ing of ingredients) {
       const product = await Product.findById(ing.product).session(session);
-      
-      if (!product) {
-        throw new Error(`Product ${ing.product} not found`);
-      }
+      if (!product) throw new Error(`Product ${ing.product} not found`);
 
-      // Convert quantity to base units
       let baseUnitQuantity = ing.quantity;
       if (ing.unit !== product.baseUnit) {
         const subUnit = product.subUnits.find(su => su.name === ing.unit);
-        if (!subUnit) {
-          throw new Error(`Unit ${ing.unit} not found for ${product.name}`);
-        }
+        if (!subUnit) throw new Error(`Unit ${ing.unit} not found for ${product.name}`);
         baseUnitQuantity = ing.quantity / subUnit.conversionRate;
       }
 
-      // Validate stock availability
       if (product.quantity < baseUnitQuantity) {
         throw new Error(`Insufficient stock for ${product.name}. Available: ${product.quantity} ${product.baseUnit}`);
       }
 
-      // Determine price to use
       let priceToUse;
       if (ing.unit === product.baseUnit) {
-        // Base unit - allow choice
         priceToUse = ing.useBuyingPrice ? product.buyingPrice : product.sellingPrice;
       } else {
-        // Sub-unit - always use selling price
         const subUnit = product.subUnits.find(su => su.name === ing.unit);
         priceToUse = subUnit ? subUnit.pricePerUnit : product.sellingPrice;
       }
-      
+
       const cost = priceToUse * ing.quantity;
       totalCost += cost;
 
@@ -100,20 +84,18 @@ export const completeProduction = async (req, res) => {
         usedBuyingPrice: ing.useBuyingPrice || false
       });
 
-      // Deduct stock in base units
       const previousQuantity = product.quantity;
       product.quantity -= baseUnitQuantity;
       await product.save({ session });
 
-      // Record stock movement
       await StockMovement.create([{
         product: product._id,
         movementType: 'production',
         quantity: -baseUnitQuantity,
         previousQuantity,
         newQuantity: product.quantity,
-        reference: type === 'custom' 
-          ? `Used in custom production for ${customerName}` 
+        reference: type === 'custom'
+          ? `Used in custom production for ${customerName}`
           : `Used in production`,
         performedBy: req.user.id
       }], { session });
@@ -121,7 +103,6 @@ export const completeProduction = async (req, res) => {
 
     const costPerUnit = outputQuantity && outputQuantity > 0 ? totalCost / outputQuantity : totalCost;
 
-    // Handle different production types
     let productionData = {
       type: type || 'standard',
       ingredients: processedIngredients,
@@ -138,16 +119,14 @@ export const completeProduction = async (req, res) => {
     let createdSale = null;
 
     if (type === 'custom') {
-      // Custom production - direct sale
       productionData.customerName = customerName;
       productionData.customOutputName = customOutputName;
       productionData.sellingPrice = parseFloat(sellingPrice);
-      productionData.totalRevenue = parseFloat(sellingPrice); // Total price for the batch
+      productionData.totalRevenue = parseFloat(sellingPrice);
       productionData.profit = parseFloat(sellingPrice) - totalCost;
-      productionData.soldImmediately = true; // Always true for custom
-      productionData.outputQuantity = 1; // One custom batch
+      productionData.soldImmediately = true;
+      productionData.outputQuantity = 1;
 
-      // Create sale for custom production
       if (saleData) {
         const saleTotal = parseFloat(sellingPrice);
         const amountPaid = saleData.amountPaid || 0;
@@ -160,9 +139,8 @@ export const completeProduction = async (req, res) => {
           paymentStatus = 'partial';
         }
 
-        // Find or create customer
         let customer = null;
-        const existingCustomer = await Customer.findOne({ 
+        const existingCustomer = await Customer.findOne({
           name: { $regex: new RegExp(`^${customerName}$`, 'i') }
         }).session(session);
 
@@ -178,7 +156,6 @@ export const completeProduction = async (req, res) => {
           customer = newCustomer[0];
         }
 
-        // Create sale
         const sale = await Sale.create([{
           items: [{
             product: null,
@@ -211,30 +188,22 @@ export const completeProduction = async (req, res) => {
         createdSale = sale[0];
         productionData.saleReference = createdSale._id;
 
-        // Update customer totals
         customer.totalPurchases += saleTotal;
-        if (amountDue > 0) {
-          customer.currentCredit += amountDue;
-        }
+        if (amountDue > 0) customer.currentCredit += amountDue;
         await customer.save({ session });
       }
-      
+
     } else {
-      // Standard production (TELE feeds) - add to inventory
       const finalProductDoc = await Product.findById(finalProduct).session(session);
-      if (!finalProductDoc) {
-        throw new Error('Final product not found');
-      }
+      if (!finalProductDoc) throw new Error('Final product not found');
 
       productionData.finalProduct = finalProductDoc._id;
       productionData.finalProductName = finalProductDoc.name;
 
-      // Add stock to final product
       const previousFinalQuantity = finalProductDoc.quantity;
       finalProductDoc.quantity += outputQuantity;
       await finalProductDoc.save({ session });
 
-      // Record stock movement for final product
       await StockMovement.create([{
         product: finalProductDoc._id,
         movementType: 'production',
@@ -247,41 +216,34 @@ export const completeProduction = async (req, res) => {
     }
 
     const production = await Production.create([productionData], { session });
-
     await session.commitTransaction();
 
-    // Populate sale if created
     if (createdSale) {
       const populatedSale = await Sale.findById(createdSale._id)
         .populate('customer')
-        .populate('cashier', 'name');
-
-      res.status(201).json({
+        .populate('cashier');
+      return res.status(201).json({
         success: true,
         message: 'Production and sale completed successfully',
         data: production[0],
         sale: populatedSale
       });
-    } else {
-      res.status(201).json({
-        success: true,
-        message: 'Production completed successfully',
-        data: production[0]
-      });
     }
+
+    res.status(201).json({
+      success: true,
+      message: 'Production completed successfully',
+      data: production[0]
+    });
   } catch (error) {
     await session.abortTransaction();
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   } finally {
     session.endSession();
   }
 };
 
 // Helper function for executing formulas
-// Add this function to properly handle substitutions when executing formulas
 export const completeProductionFromFormula = async (req, res, productionData, formula) => {
   const session = await mongoose.startSession();
   session.startTransaction();
@@ -505,21 +467,115 @@ export const completeProductionFromFormula = async (req, res, productionData, fo
   }
 };
 
+// NEW: Reverse a production record
+export const reverseProduction = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const production = await Production.findById(req.params.id).session(session);
+
+    if (!production) {
+      return res.status(404).json({ success: false, message: 'Production record not found' });
+    }
+
+    if (production.isReversed) {
+      return res.status(400).json({ success: false, message: 'Production has already been reversed' });
+    }
+
+    // Return all ingredients back to inventory
+    for (const ing of production.ingredients) {
+      const product = await Product.findById(ing.product).session(session);
+      if (product) {
+        const previousQuantity = product.quantity;
+        product.quantity += (ing.baseUnitQuantity || ing.quantity);
+        await product.save({ session });
+
+        await StockMovement.create([{
+          product: product._id,
+          movementType: 'adjustment',
+          quantity: ing.baseUnitQuantity || ing.quantity,
+          previousQuantity,
+          newQuantity: product.quantity,
+          reference: `Reversed production: ${production.productionNumber || production._id}`,
+          performedBy: req.user.id
+        }], { session });
+      }
+    }
+
+    // Remove final product from inventory (standard production)
+    if (production.type === 'standard' && production.finalProduct) {
+      const finalProduct = await Product.findById(production.finalProduct).session(session);
+      if (finalProduct) {
+        const previousQuantity = finalProduct.quantity;
+        finalProduct.quantity = Math.max(0, finalProduct.quantity - production.outputQuantity);
+        await finalProduct.save({ session });
+
+        await StockMovement.create([{
+          product: finalProduct._id,
+          movementType: 'adjustment',
+          quantity: -production.outputQuantity,
+          previousQuantity,
+          newQuantity: finalProduct.quantity,
+          reference: `Reversed production: ${production.productionNumber || production._id}`,
+          performedBy: req.user.id
+        }], { session });
+      }
+    }
+
+    // Handle reversal of associated sale for custom productions
+    if (production.type === 'custom' && production.saleReference) {
+      const sale = await Sale.findById(production.saleReference).session(session);
+      if (sale) {
+        // Mark sale as reversed/voided
+        sale.paymentStatus = 'voided';
+        sale.notes = (sale.notes || '') + ' | Reversed with production';
+        await sale.save({ session });
+
+        // Update customer credit if applicable
+        if (sale.customer && sale.amountDue > 0) {
+          const customer = await Customer.findById(sale.customer).session(session);
+          if (customer) {
+            customer.currentCredit = Math.max(0, customer.currentCredit - sale.amountDue);
+            await customer.save({ session });
+          }
+        }
+      }
+    }
+
+    // Mark production as reversed
+    production.isReversed = true;
+    production.reversedAt = new Date();
+    production.reversedBy = req.user.id;
+    production.reversedByName = req.user.name;
+    await production.save({ session });
+
+    await session.commitTransaction();
+
+    res.json({
+      success: true,
+      message: 'Production reversed successfully. Ingredients returned to inventory.',
+      data: production
+    });
+  } catch (error) {
+    await session.abortTransaction();
+    console.error('Error reversing production:', error);
+    res.status(500).json({ success: false, message: error.message });
+  } finally {
+    session.endSession();
+  }
+};
+
 export const getProductionHistory = async (req, res) => {
   try {
     const { startDate, endDate, type, limit = 50 } = req.query;
-
     let query = {};
-
     if (startDate || endDate) {
       query.productionDate = {};
       if (startDate) query.productionDate.$gte = new Date(startDate);
       if (endDate) query.productionDate.$lte = new Date(endDate);
     }
-
-    if (type) {
-      query.type = type;
-    }
+    if (type) query.type = type;
 
     const productions = await Production.find(query)
       .populate('finalProduct')
@@ -530,15 +586,9 @@ export const getProductionHistory = async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(parseInt(limit));
 
-    res.json({
-      success: true,
-      data: productions
-    });
+    res.json({ success: true, data: productions });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -552,39 +602,25 @@ export const getProductionById = async (req, res) => {
       .populate('saleReference');
 
     if (!production) {
-      return res.status(404).json({
-        success: false,
-        message: 'Production record not found'
-      });
+      return res.status(404).json({ success: false, message: 'Production record not found' });
     }
 
-    res.json({
-      success: true,
-      data: production
-    });
+    res.json({ success: true, data: production });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
 export const getProductionStats = async (req, res) => {
   try {
     const { startDate, endDate, type } = req.query;
-
     let matchQuery = {};
-
     if (startDate || endDate) {
       matchQuery.productionDate = {};
       if (startDate) matchQuery.productionDate.$gte = new Date(startDate);
       if (endDate) matchQuery.productionDate.$lte = new Date(endDate);
     }
-
-    if (type) {
-      matchQuery.type = type;
-    }
+    if (type) matchQuery.type = type;
 
     const stats = await Production.aggregate([
       { $match: matchQuery },
@@ -601,7 +637,6 @@ export const getProductionStats = async (req, res) => {
       }
     ]);
 
-    // Get most produced products
     const topProducts = await Production.aggregate([
       { $match: { ...matchQuery, type: 'standard' } },
       {
@@ -617,7 +652,6 @@ export const getProductionStats = async (req, res) => {
       { $limit: 10 }
     ]);
 
-    // Get custom production stats
     const customStats = await Production.aggregate([
       { $match: { ...matchQuery, type: 'custom' } },
       {
@@ -650,10 +684,6 @@ export const getProductionStats = async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
-

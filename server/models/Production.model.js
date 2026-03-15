@@ -1,4 +1,5 @@
-// server/models/Production.model.js - ENHANCED with Substitution Tracking
+// server/models/Production.model.js
+// VERSION 3: Complete with substitution tracking and reversal fields
 
 import mongoose from 'mongoose';
 
@@ -21,7 +22,7 @@ const productionIngredientSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  // NEW: Track if this ingredient was substituted
+  // Track if this ingredient was substituted
   wasSubstituted: {
     type: Boolean,
     default: false
@@ -101,7 +102,7 @@ const productionSchema = new mongoose.Schema({
     ref: 'Sale'
   },
   
-  // NEW: Track if substitutions were made
+  // Track if substitutions were made
   hasSubstitutions: {
     type: Boolean,
     default: false
@@ -117,7 +118,21 @@ const productionSchema = new mongoose.Schema({
   productionDate: {
     type: Date,
     default: Date.now
-  }
+  },
+  
+  // Reversal tracking (NEW)
+  isReversed: {
+    type: Boolean,
+    default: false
+  },
+  reversedAt: {
+    type: Date
+  },
+  reversedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  },
+  reversedByName: String
 }, {
   timestamps: true
 });
@@ -153,8 +168,12 @@ productionSchema.pre('validate', async function(next) {
   next();
 });
 
-// Add index for searching by formula
+// Add indexes for efficient querying
 productionSchema.index({ formula: 1, createdAt: -1 });
 productionSchema.index({ hasSubstitutions: 1 });
+productionSchema.index({ isReversed: 1 }); // NEW: Index for reversal queries
+productionSchema.index({ productionNumber: 1 }); // Add index for production number lookups
+productionSchema.index({ productionDate: -1 }); // Add index for date-based queries
+productionSchema.index({ type: 1, productionDate: -1 }); // Compound index for type + date
 
 export default mongoose.model('Production', productionSchema);

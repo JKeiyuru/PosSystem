@@ -1,36 +1,39 @@
-// client/src/pages/Products.jsx - COMPLETE WITH ALL FEATURES
+// client/src/pages/Products.jsx
+// VERSION 3: Complete with ALL original features + cashier add/edit permissions
 
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow
 } from '../components/ui/table';
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogFooter 
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter
 } from '../components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue
+} from '../components/ui/select';
 import { Badge } from '../components/ui/badge';
 import { Alert, AlertDescription } from '../components/ui/alert';
-import { Plus, Edit, Trash2, Barcode, Upload, Search, X, History, AlertCircle } from 'lucide-react';
+import { 
+  Plus, Edit, Trash2, Barcode, Upload, Search, X, History, 
+  AlertCircle, Package 
+} from 'lucide-react';
 import { productService } from '../services/product.service';
 import { formatCurrency } from '../lib/utils';
 import { useAuth } from '../hooks/useAuth';
+import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 
 export default function Products() {
   const { user } = useAuth();
+  const isCashier = user?.role === 'cashier';
+  const isAdmin = user?.role === 'admin' || user?.role === 'manager';
+  const canDeleteProducts = isAdmin; // Only admin/manager can delete
+  const canEditProducts = isAdmin || isCashier; // Cashiers can add/edit but not delete
+
   const [products, setProducts] = useState([]);
   const [categories, setCategories] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -56,8 +59,6 @@ export default function Products() {
     subUnits: []
   });
 
-  const canEditProducts = user && (user.role === 'admin' || user.role === 'manager');
-
   useEffect(() => {
     fetchProducts();
     fetchCategories();
@@ -79,7 +80,7 @@ export default function Products() {
   const fetchCategories = async () => {
     try {
       const response = await productService.getCategories();
-      setCategories(response.data);
+      setCategories(response.data || []);
     } catch (error) {
       console.error('Error fetching categories:', error);
     }
@@ -129,22 +130,32 @@ export default function Products() {
     e.preventDefault();
     
     if (!canEditProducts) {
-      alert('You do not have permission to edit products');
+      toast.error('You do not have permission to edit products');
       return;
     }
 
     try {
-      const updatedSubUnits = formData.subUnits.map(subUnit => ({
+      // Handle sub-units if they exist
+      const updatedSubUnits = formData.hasMultipleUnits ? formData.subUnits.map(subUnit => ({
         ...subUnit,
         conversionRate: parseFloat(subUnit.conversionRate) || 0,
         pricePerUnit: parseFloat(subUnit.pricePerUnit) || 0,
         profitMargin: subUnit.name === 'kasuku' ? 60 : subUnit.name === 'bucket' ? 100 : 0,
         manualConversionRate: subUnit.manualConversionRate || false
-      }));
+      })) : [];
 
       const dataToSubmit = {
-        ...formData,
-        baseUnitSize: parseFloat(formData.baseUnitSize),
+        name: formData.name,
+        category: formData.category,
+        description: formData.description || '',
+        baseUnit: formData.baseUnit || 'bag',
+        baseUnitSize: parseFloat(formData.baseUnitSize) || 50,
+        buyingPrice: parseFloat(formData.buyingPrice) || 0,
+        sellingPrice: parseFloat(formData.sellingPrice),
+        quantity: parseFloat(formData.quantity) || 0,
+        reorderLevel: parseFloat(formData.reorderLevel) || 10,
+        supplier: formData.supplier || '',
+        hasMultipleUnits: formData.hasMultipleUnits || false,
         subUnits: updatedSubUnits
       };
 
@@ -159,8 +170,10 @@ export default function Products() {
             user: user.name
           });
         }
+        toast.success('Product updated successfully');
       } else {
         await productService.create(dataToSubmit);
+        toast.success('Product created successfully and is now available for sale');
       }
       
       setIsDialogOpen(false);
@@ -168,16 +181,15 @@ export default function Products() {
       fetchProducts();
       fetchCategories();
       setQuantityChangeInfo(null);
-      alert('Product saved successfully!');
     } catch (error) {
       console.error('Error saving product:', error);
-      alert('Error saving product: ' + (error.response?.data?.message || error.message));
+      toast.error('Error saving product: ' + (error.response?.data?.message || error.message));
     }
   };
 
   const handleEdit = (product) => {
     if (!canEditProducts) {
-      alert('You do not have permission to edit products');
+      toast.error('You do not have permission to edit products');
       return;
     }
 
@@ -188,10 +200,10 @@ export default function Products() {
       description: product.description || '',
       baseUnit: product.baseUnit || 'bag',
       baseUnitSize: product.baseUnitSize?.toString() || '50',
-      buyingPrice: product.buyingPrice,
-      sellingPrice: product.sellingPrice,
-      quantity: product.quantity,
-      reorderLevel: product.reorderLevel,
+      buyingPrice: product.buyingPrice?.toString() || '',
+      sellingPrice: product.sellingPrice?.toString() || '',
+      quantity: product.quantity?.toString() || '',
+      reorderLevel: product.reorderLevel?.toString() || '10',
       supplier: product.supplier || '',
       hasMultipleUnits: product.hasMultipleUnits || false,
       subUnits: product.subUnits || []
@@ -201,19 +213,19 @@ export default function Products() {
   };
 
   const handleDelete = async (id) => {
-    if (!canEditProducts) {
-      alert('You do not have permission to delete products');
+    if (!canDeleteProducts) {
+      toast.error('You do not have permission to delete products');
       return;
     }
 
     if (window.confirm('Are you sure you want to delete this product?')) {
       try {
         await productService.delete(id);
+        toast.success('Product deleted successfully');
         fetchProducts();
-        alert('Product deleted successfully!');
       } catch (error) {
         console.error('Error deleting product:', error);
-        alert('Error deleting product');
+        toast.error('Error deleting product');
       }
     }
   };
@@ -221,10 +233,11 @@ export default function Products() {
   const handleGenerateBarcode = async (id) => {
     try {
       const response = await productService.generateBarcode(id);
-      alert(`Barcode generated: ${response.data.barcode}`);
+      toast.success(`Barcode generated: ${response.data.barcode}`);
       fetchProducts();
     } catch (error) {
       console.error('Error generating barcode:', error);
+      toast.error('Error generating barcode');
     }
   };
 
@@ -400,14 +413,14 @@ export default function Products() {
         });
 
         await productService.bulkImport(products);
-        alert(`${products.length} products imported successfully!`);
+        toast.success(`${products.length} products imported successfully!`);
         setIsImportDialogOpen(false);
         fetchProducts();
         fetchCategories();
 
       } catch (error) {
         console.error('Error importing products:', error);
-        alert('Error importing products: ' + error.message);
+        toast.error('Error importing products: ' + error.message);
       }
     };
     reader.readAsArrayBuffer(file);
@@ -429,20 +442,23 @@ export default function Products() {
           <h1 className="text-3xl font-bold">Products</h1>
           <p className="text-gray-600">Manage your product inventory</p>
         </div>
-        {canEditProducts && (
-          <div className="flex space-x-2">
+        <div className="flex space-x-2">
+          {/* Import Excel - Admin/Manager only */}
+          {isAdmin && (
             <Button onClick={() => setIsImportDialogOpen(true)}>
               <Upload className="mr-2 h-4 w-4" />
               Import Excel
             </Button>
-            <Button onClick={() => { resetForm(); setIsDialogOpen(true); }}>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Product
-            </Button>
-          </div>
-        )}
+          )}
+          {/* Add Product - All roles including cashier */}
+          <Button onClick={() => { resetForm(); setIsDialogOpen(true); }}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Product
+          </Button>
+        </div>
       </div>
 
+      {/* Filters */}
       <Card>
         <CardContent className="pt-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -455,7 +471,10 @@ export default function Products() {
                 className="pl-10"
               />
             </div>
-            <Select value={selectedCategory} onValueChange={setSelectedCategory}>
+            <Select 
+              value={selectedCategory} 
+              onValueChange={setSelectedCategory}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="All Categories" />
               </SelectTrigger>
@@ -472,9 +491,13 @@ export default function Products() {
         </CardContent>
       </Card>
 
+      {/* Products Table */}
       <Card>
         <CardHeader>
-          <CardTitle>All Products</CardTitle>
+          <CardTitle>
+            All Products
+            <span className="ml-2 text-sm font-normal text-gray-500">({products.length})</span>
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -484,22 +507,31 @@ export default function Products() {
                   <TableHead>Name</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Barcode</TableHead>
-                  <TableHead>Bag Size (kg)</TableHead>
-                  <TableHead>Buying Price</TableHead>
+                  <TableHead>Bag Size</TableHead>
                   <TableHead>Selling Price</TableHead>
-                  <TableHead>Quantity</TableHead>
+                  {!isCashier && <TableHead>Buying Price</TableHead>}
+                  <TableHead>Stock</TableHead>
                   <TableHead>Units</TableHead>
                   <TableHead>Status</TableHead>
-                  {canEditProducts && <TableHead>Actions</TableHead>}
+                  <TableHead>Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {products.map((product) => (
                   <TableRow key={product._id}>
-                    <TableCell className="font-medium">{product.name}</TableCell>
+                    <TableCell className="font-medium">
+                      <div className="flex items-center gap-2">
+                        {product.hasMultipleUnits && (
+                          <Package className="h-4 w-4 text-blue-500" title="Multiple units" />
+                        )}
+                        {product.name}
+                      </div>
+                    </TableCell>
                     <TableCell>{product.category}</TableCell>
                     <TableCell>
-                      {product.barcode || (
+                      {product.barcode ? (
+                        <span className="text-xs font-mono">{product.barcode}</span>
+                      ) : (
                         canEditProducts && (
                           <Button
                             size="sm"
@@ -512,8 +544,14 @@ export default function Products() {
                       )}
                     </TableCell>
                     <TableCell>{product.baseUnitSize || 50} kg</TableCell>
-                    <TableCell>{formatCurrency(product.buyingPrice)}</TableCell>
-                    <TableCell>{formatCurrency(product.sellingPrice)}</TableCell>
+                    <TableCell className="font-semibold text-blue-600">
+                      {formatCurrency(product.sellingPrice)}
+                    </TableCell>
+                    {!isCashier && (
+                      <TableCell className="text-green-600">
+                        {formatCurrency(product.buyingPrice)}
+                      </TableCell>
+                    )}
                     <TableCell>
                       {product.quantity} {product.baseUnit}
                       {product.openedBags > 0 && (
@@ -530,16 +568,18 @@ export default function Products() {
                       )}
                     </TableCell>
                     <TableCell>{getStockBadge(product)}</TableCell>
-                    {canEditProducts && (
-                      <TableCell>
-                        <div className="flex space-x-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleEdit(product)}
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
+                    <TableCell>
+                      <div className="flex space-x-2">
+                        {/* Edit - All roles including cashier */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => handleEdit(product)}
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        {/* Delete - Admin/Manager only */}
+                        {isAdmin && (
                           <Button
                             size="sm"
                             variant="destructive"
@@ -547,14 +587,17 @@ export default function Products() {
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
-                        </div>
-                      </TableCell>
-                    )}
+                        )}
+                      </div>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
             </Table>
           </div>
+          {products.length === 0 && (
+            <p className="text-center py-8 text-gray-500">No products found.</p>
+          )}
         </CardContent>
       </Card>
 
@@ -581,8 +624,14 @@ export default function Products() {
                 <Input
                   value={formData.category}
                   onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                  list="category-suggestions"
                   required
                 />
+                <datalist id="category-suggestions">
+                  {categories.map((cat) => (
+                    <option key={cat} value={cat} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-2">
@@ -599,30 +648,30 @@ export default function Products() {
                     <SelectItem value="kg">Kilogram</SelectItem>
                     <SelectItem value="piece">Piece</SelectItem>
                     <SelectItem value="liter">Liter</SelectItem>
+                    <SelectItem value="packet">Packet</SelectItem>
+                    <SelectItem value="roll">Roll</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className="space-y-2">
-                <Label>Bag Weight (kg) *</Label>
+                <Label>Bag Weight (kg)</Label>
                 <Input
                   type="number"
                   step="0.01"
                   value={formData.baseUnitSize}
                   onChange={(e) => setFormData({ ...formData, baseUnitSize: e.target.value })}
-                  required
                 />
                 <p className="text-xs text-gray-600">Weight per bag (e.g., 50kg or 70kg)</p>
               </div>
 
               <div className="space-y-2">
-                <Label>Buying Price *</Label>
+                <Label>Buying Price {isCashier ? '(Optional)' : ''}</Label>
                 <Input
                   type="number"
                   step="0.01"
                   value={formData.buyingPrice}
                   onChange={(e) => setFormData({ ...formData, buyingPrice: e.target.value })}
-                  required
                 />
               </div>
 
@@ -632,19 +681,18 @@ export default function Products() {
                   type="number"
                   step="0.01"
                   value={formData.sellingPrice}
-                  onChange={( e) => handleSellingPriceChange(e.target.value)}
+                  onChange={(e) => handleSellingPriceChange(e.target.value)}
                   required
                 />
               </div>
 
               <div className="space-y-2">
-                <Label>Quantity *</Label>
+                <Label>Quantity</Label>
                 <Input
                   type="number"
                   step="0.01"
                   value={formData.quantity}
                   onChange={(e) => handleQuantityChange(e.target.value)}
-                  required
                 />
                 {quantityChangeInfo && (
                   <Alert className="mt-2">
@@ -788,31 +836,33 @@ export default function Products() {
                 Cancel
               </Button>
               <Button type="submit">
-                {editingProduct ? 'Update Product' : 'Add Product'}
+                {editingProduct ? 'Update' : 'Create'} Product
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Import Dialog */}
-      <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Import Products from Excel</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p className="text-sm text-gray-600">
-              Upload an Excel file with product data. Required columns: Name, Category, Buying Price, Selling Price, Quantity
-            </p>
-            <Input
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              onChange={handleImportExcel}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* Import Dialog - Admin/Manager only */}
+      {isAdmin && (
+        <Dialog open={isImportDialogOpen} onOpenChange={setIsImportDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Import Products from Excel</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Upload an Excel file with product data. Required columns: Name, Category, Buying Price, Selling Price, Quantity
+              </p>
+              <Input
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={handleImportExcel}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

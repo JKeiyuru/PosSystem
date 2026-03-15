@@ -1,4 +1,5 @@
-// server/controllers/customer.controller.js - UPDATED with credit sync
+// server/controllers/customer.controller.js
+// UPDATED: Added getCustomerStatement for PDF generation
 
 import Customer from '../models/Customer.model.js';
 import Sale from '../models/Sale.model.js';
@@ -22,7 +23,6 @@ export const getAllCustomers = async (req, res) => {
 
     // SYNC CUSTOMER CREDIT WITH ACTUAL DEBT
     for (const customer of customers) {
-      // Calculate actual debt from sales
       const actualDebt = await Sale.aggregate([
         {
           $match: {
@@ -40,9 +40,7 @@ export const getAllCustomers = async (req, res) => {
 
       const calculatedDebt = actualDebt.length > 0 ? actualDebt[0].totalDebt : 0;
       
-      // Update if there's a mismatch
       if (Math.abs(customer.currentCredit - calculatedDebt) > 0.01) {
-        console.log(`Syncing credit for ${customer.name}: ${customer.currentCredit} -> ${calculatedDebt}`);
         customer.currentCredit = calculatedDebt;
         await customer.save();
       }
@@ -72,7 +70,6 @@ export const getCustomerById = async (req, res) => {
       });
     }
 
-    // Sync credit
     const actualDebt = await Sale.aggregate([
       {
         $match: {
@@ -91,12 +88,10 @@ export const getCustomerById = async (req, res) => {
     const calculatedDebt = actualDebt.length > 0 ? actualDebt[0].totalDebt : 0;
     
     if (Math.abs(customer.currentCredit - calculatedDebt) > 0.01) {
-      console.log(`Syncing credit for ${customer.name}: ${customer.currentCredit} -> ${calculatedDebt}`);
       customer.currentCredit = calculatedDebt;
       await customer.save();
     }
 
-    // Get customer sales history
     const sales = await Sale.find({ customer: customer._id })
       .sort({ createdAt: -1 })
       .limit(10);
@@ -130,7 +125,6 @@ export const getCustomerSalesHistory = async (req, res) => {
       });
     }
 
-    // Sync credit
     const actualDebt = await Sale.aggregate([
       {
         $match: {
@@ -174,7 +168,6 @@ export const getCustomerSalesHistory = async (req, res) => {
       Sale.countDocuments(query)
     ]);
 
-    // Calculate statistics
     const totalPurchased = sales.reduce((sum, sale) => sum + sale.total, 0);
     const totalPaid = sales.reduce((sum, sale) => sum + sale.amountPaid, 0);
     const creditPayments = payments.reduce((sum, pmt) => sum + pmt.amount, 0);
@@ -205,6 +198,113 @@ export const getCustomerSalesHistory = async (req, res) => {
     res.status(500).json({
       success: false,
       message: error.message
+    });
+  }
+};
+
+// NEW: Get customer statement with running balance
+export const getCustomerStatement = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query;
+    const customerId = req.params.id;
+
+    const customer = await Customer.findById(customerId);
+    if (!customer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Customer not found'
+      });
+    }
+
+    const start = startDate ? new Date(startDate) : new Date(0);
+    const end = endDate ? new Date(endDate) : new Date();
+    // Set end to end of day
+    end.setHours(23, 59, 59, 999);
+
+    // Fetch sales in range
+    const sales = await Sale.find({
+      customer: customerId,
+      saleDate: { $gte: start, $lte: end }
+    }).sort({ saleDate: 1 });
+
+    // Fetch payment transactions in range
+    const payments = await PaymentTransaction.find({
+      customer: customerId,
+      paymentDate: { $gte: start, $lte: end }
+    }).sort({ paymentDate: 1 });
+
+    // Build chronological transaction list
+    const allTxs = [
+      ...sales.map((s) => ({
+        type: 'sale',
+        date: s.saleDate,
+        reference: s.saleNumber,
+        amount: s.total,
+        detail: s.paymentMethod ? s.paymentMethod.replace(/_/g, ' ') : '',
+        items: s.items.map((i) => ({
+          productName: i.productName,
+          quantity: i.quantity,
+          unitPrice: i.unitPrice,
+          totalPrice: i.totalPrice,
+        })),
+      })),
+      ...payments.map((p) => ({
+        type: 'payment',
+        date: p.paymentDate || p.createdAt,
+        reference: p.transactionNumber,
+        amount: p.amount,
+        detail: p.paymentMethod
+          ? p.paymentMethod.replace(/_/g, ' ')
+          : '',
+        items: [],
+      })),
+    ].sort((a, b) => new Date(a.date) - new Date(b.date));
+
+    // Compute running balance (sales add debt, payments reduce it)
+    let runningBalance = 0;
+    const transactions = allTxs.map((tx) => {
+      if (tx.type === 'sale') {
+        runningBalance += tx.amount;
+      } else {
+        runningBalance -= tx.amount;
+      }
+      return { ...tx, balance: runningBalance };
+    });
+
+    const finalBalance = runningBalance;
+
+    // Aging analysis — based on unpaid sales across all time
+    const now = new Date();
+    const unpaidSales = await Sale.find({
+      customer: customerId,
+      amountDue: { $gt: 0 },
+    });
+
+    const aging = { above90: 0, days60to90: 0, days30to60: 0, days0to30: 0 };
+    for (const sale of unpaidSales) {
+      const daysDiff = Math.floor(
+        (now - new Date(sale.saleDate)) / (1000 * 60 * 60 * 24)
+      );
+      if (daysDiff > 90) aging.above90 += sale.amountDue;
+      else if (daysDiff > 60) aging.days60to90 += sale.amountDue;
+      else if (daysDiff > 30) aging.days30to60 += sale.amountDue;
+      else aging.days0to30 += sale.amountDue;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        customer,
+        transactions,
+        finalBalance,
+        aging,
+      },
+    });
+  } catch (error) {
+    console.error('Error in getCustomerStatement:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message,
     });
   }
 };
@@ -291,7 +391,6 @@ export const getCustomersWithCredit = async (req, res) => {
       currentCredit: { $gt: 0 }
     }).sort({ currentCredit: -1 });
 
-    // Sync credit for all customers with debt
     for (const customer of customers) {
       const actualDebt = await Sale.aggregate([
         {
@@ -329,11 +428,8 @@ export const getCustomersWithCredit = async (req, res) => {
   }
 };
 
-
 export const syncAllCustomerCredits = async (req, res) => {
   try {
-    console.log('Starting customer credit synchronization...');
-
     const customers = await Customer.find({ isActive: true });
     let syncCount = 0;
     let errorCount = 0;
@@ -341,7 +437,6 @@ export const syncAllCustomerCredits = async (req, res) => {
 
     for (const customer of customers) {
       try {
-        // Calculate actual debt from sales
         const actualDebt = await Sale.aggregate([
           {
             $match: {
@@ -366,9 +461,7 @@ export const syncAllCustomerCredits = async (req, res) => {
             name: customer.name,
             oldCredit: currentCredit,
             newCredit: roundedDebt,
-            difference: Math.abs(currentCredit - roundedDebt)
           });
-
           customer.currentCredit = roundedDebt;
           await customer.save();
           syncCount++;
@@ -379,8 +472,6 @@ export const syncAllCustomerCredits = async (req, res) => {
       }
     }
 
-    console.log(`Sync completed: ${syncCount} updated, ${errorCount} errors`);
-
     res.json({
       success: true,
       message: 'Customer credits synchronized successfully',
@@ -388,7 +479,6 @@ export const syncAllCustomerCredits = async (req, res) => {
         totalCustomers: customers.length,
         updated: syncCount,
         errors: errorCount,
-        alreadyInSync: customers.length - syncCount - errorCount,
         updates
       }
     });
