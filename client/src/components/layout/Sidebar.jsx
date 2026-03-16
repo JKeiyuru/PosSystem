@@ -67,16 +67,17 @@ const allMenuItems = [
     roles: ['admin', 'manager', 'cashier']
   },
   { 
+    // Cashiers can add customers and download statements
     icon: Users, 
     label: 'Customers', 
     path: '/customers',
-    roles: ['admin', 'manager']
+    roles: ['admin', 'manager', 'cashier']
   },
   { 
     icon: FileText, 
     label: 'Invoices', 
     path: '/invoices',
-    roles: ['admin', 'manager', 'cashier'] // UPDATED: Added cashier access
+    roles: ['admin', 'manager', 'cashier']
   },
   { 
     icon: BarChart3, 
@@ -88,7 +89,7 @@ const allMenuItems = [
     icon: Settings, 
     label: 'Settings', 
     path: '/settings',
-    roles: ['admin', 'manager'] // UPDATED: Removed cashier access
+    roles: ['admin', 'manager']
   },
 ];
 
