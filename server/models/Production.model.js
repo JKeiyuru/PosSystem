@@ -1,5 +1,5 @@
 // server/models/Production.model.js
-// VERSION 3: Complete with substitution tracking and reversal fields
+// Fixed: removed duplicate schema, added reversal tracking fields
 
 import mongoose from 'mongoose';
 
@@ -49,14 +49,14 @@ const productionSchema = new mongoose.Schema({
     ref: 'ProductionFormula'
   },
   ingredients: [productionIngredientSchema],
-  
+
   // For standard production (TELE feeds)
   finalProduct: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product'
   },
   finalProductName: String,
-  
+
   // For custom production (customer combinations)
   customerName: String,
   customOutputName: String,
@@ -73,7 +73,7 @@ const productionSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
-  
+
   outputQuantity: {
     type: Number,
     required: true,
@@ -92,7 +92,7 @@ const productionSchema = new mongoose.Schema({
     default: 0
   },
   costPerUnit: Number,
-  
+
   soldImmediately: {
     type: Boolean,
     default: false
@@ -101,13 +101,13 @@ const productionSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Sale'
   },
-  
+
   // Track if substitutions were made
   hasSubstitutions: {
     type: Boolean,
     default: false
   },
-  
+
   performedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
@@ -119,8 +119,8 @@ const productionSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   },
-  
-  // Reversal tracking (NEW)
+
+  // Reversal tracking
   isReversed: {
     type: Boolean,
     default: false
@@ -133,47 +133,48 @@ const productionSchema = new mongoose.Schema({
     ref: 'User'
   },
   reversedByName: String
+
 }, {
   timestamps: true
 });
 
 // Generate production number
-productionSchema.pre('validate', async function(next) {
+productionSchema.pre('validate', async function (next) {
   if (!this.productionNumber) {
     try {
       const date = new Date();
       const year = date.getFullYear().toString().slice(-2);
       const month = (date.getMonth() + 1).toString().padStart(2, '0');
       const day = date.getDate().toString().padStart(2, '0');
-      
+
       const count = await mongoose.model('Production').countDocuments({
         createdAt: {
           $gte: new Date(date.getFullYear(), date.getMonth(), date.getDate()),
           $lt: new Date(date.getFullYear(), date.getMonth(), date.getDate() + 1)
         }
       });
-      
+
       this.productionNumber = `PROD-${year}${month}${day}-${(count + 1).toString().padStart(4, '0')}`;
     } catch (error) {
       console.error('Error generating production number:', error);
       this.productionNumber = `PROD-${Date.now()}`;
     }
   }
-  
+
   // Check if any ingredients were substituted
   if (this.ingredients && this.ingredients.length > 0) {
     this.hasSubstitutions = this.ingredients.some(ing => ing.wasSubstituted);
   }
-  
+
   next();
 });
 
-// Add indexes for efficient querying
+// Indexes for efficient querying
 productionSchema.index({ formula: 1, createdAt: -1 });
 productionSchema.index({ hasSubstitutions: 1 });
-productionSchema.index({ isReversed: 1 }); // NEW: Index for reversal queries
-productionSchema.index({ productionNumber: 1 }); // Add index for production number lookups
-productionSchema.index({ productionDate: -1 }); // Add index for date-based queries
-productionSchema.index({ type: 1, productionDate: -1 }); // Compound index for type + date
+productionSchema.index({ isReversed: 1 });
+productionSchema.index({ productionNumber: 1 });
+productionSchema.index({ productionDate: -1 });
+productionSchema.index({ type: 1, productionDate: -1 });
 
 export default mongoose.model('Production', productionSchema);
