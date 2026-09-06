@@ -6040,6 +6040,8 @@ export { products };
 //  - Products are UPSERTED by name (existing stock quantities are preserved).
 //  - The first admin user is created if missing.
 // ---------------------------------------------------------------------------
+import { pathToFileURL } from 'url';
+
 const runSeeder = async () => {
   const [{ default: mongoose }, { default: dotenv }] = await Promise.all([
     import('mongoose'),
@@ -6130,6 +6132,6 @@ const runSeeder = async () => {
   }
 };
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   runSeeder();
 }
