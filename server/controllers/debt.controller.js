@@ -170,21 +170,25 @@ export const recordDebtPayment = async (req, res) => {
       throw new Error('Customer not found');
     }
 
-    console.log('Customer found:', customer.name, 'Current credit:', customer.currentCredit);
-
-    // Use a small epsilon for floating point comparison
-    const epsilon = 0.01;
-    if (amount > customer.currentCredit + epsilon) {
-      throw new Error(`Payment amount (${amount.toFixed(2)}) exceeds customer debt (${customer.currentCredit.toFixed(2)})`);
-    }
-
     // Get all unpaid/partial sales for this customer, sorted by date (oldest first)
     const unpaidSales = await Sale.find({
       customer: customerId,
       amountDue: { $gt: 0 }
     }).sort({ saleDate: 1 }).session(session);
 
-    console.log(`Found ${unpaidSales.length} unpaid sales for customer`);
+    // The sales ledger is the source of truth for what is owed.
+    const actualDebt = Math.round(
+      unpaidSales.reduce((sum, s) => sum + (s.amountDue || 0), 0) * 100
+    ) / 100;
+
+    console.log('Customer:', customer.name, '| stored credit:', customer.currentCredit, '| ledger debt:', actualDebt);
+
+    const epsilon = 0.01;
+    if (amount > actualDebt + epsilon) {
+      throw new Error(
+        `Payment amount (${amount.toFixed(2)}) exceeds customer debt (${actualDebt.toFixed(2)})`
+      );
+    }
 
     let remainingPayment = amount;
     const updatedSales = [];
@@ -200,6 +204,7 @@ export const recordDebtPayment = async (req, res) => {
       
       // Round to avoid floating point issues
       sale.amountDue = Math.max(0, Math.round(sale.amountDue * 100) / 100);
+      sale.amountPaid = Math.round(sale.amountPaid * 100) / 100;
       
       if (sale.amountDue <= 0) {
         sale.paymentStatus = 'paid';
@@ -229,12 +234,13 @@ export const recordDebtPayment = async (req, res) => {
       notes: `Debt payment for ${customer.name}`
     }], { session });
 
-    // Update customer credit - round to avoid floating point issues
-    const newCredit = Math.max(0, Math.round((customer.currentCredit - amount) * 100) / 100);
+    // Recalculate the customer's outstanding credit from the ledger
+    const newCredit = Math.max(0, Math.round((actualDebt - amount) * 100) / 100);
     console.log('Updating customer credit from', customer.currentCredit, 'to', newCredit);
     
     customer.currentCredit = newCredit;
     await customer.save({ session });
+
 
     await session.commitTransaction();
 

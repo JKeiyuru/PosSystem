@@ -202,7 +202,8 @@ export const getCustomerSalesHistory = async (req, res) => {
   }
 };
 
-// NEW: Get customer statement with running balance
+// Proper A/R statement for a selected period:
+// opening balance + period transactions (debits/credits) = closing balance.
 export const getCustomerStatement = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
@@ -217,86 +218,160 @@ export const getCustomerStatement = async (req, res) => {
     }
 
     const start = startDate ? new Date(startDate) : new Date(0);
+    start.setHours(0, 0, 0, 0);
     const end = endDate ? new Date(endDate) : new Date();
-    // Set end to end of day
     end.setHours(23, 59, 59, 999);
 
-    // Fetch sales in range
-    const sales = await Sale.find({
-      customer: customerId,
-      saleDate: { $gte: start, $lte: end }
-    }).sort({ saleDate: 1 });
+    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-    // Fetch payment transactions in range
-    const payments = await PaymentTransaction.find({
-      customer: customerId,
-      paymentDate: { $gte: start, $lte: end }
-    }).sort({ paymentDate: 1 });
+    // amountPaidAtSale = deposit taken when the sale was made.
+    // Older records may not have it; fall back to (amountPaid - later payments).
+    const paidAtSale = (sale, laterPaymentsForSale) => {
+      if (sale.amountPaidAtSale !== undefined && sale.amountPaidAtSale !== null) {
+        return round2(sale.amountPaidAtSale);
+      }
+      return Math.max(0, round2((sale.amountPaid || 0) - laterPaymentsForSale));
+    };
 
-    // Build chronological transaction list
-    const allTxs = [
-      ...sales.map((s) => ({
+    const [allSales, allPayments] = await Promise.all([
+      Sale.find({ customer: customerId, saleDate: { $lte: end } }).sort({ saleDate: 1 }),
+      PaymentTransaction.find({ customer: customerId }).sort({ paymentDate: 1 }),
+    ]);
+
+    // How much each sale received through debt-repayment transactions.
+    const appliedBySale = {};
+    for (const payment of allPayments) {
+      for (const applied of payment.sales || []) {
+        if (!applied?.sale) continue;
+        const key = applied.sale.toString();
+        appliedBySale[key] = (appliedBySale[key] || 0) + (applied.amountApplied || 0);
+      }
+    }
+
+    // ── OPENING BALANCE (everything before the period) ──────────────
+    let openingBalance = 0;
+    for (const sale of allSales) {
+      if (new Date(sale.saleDate) >= start) continue;
+      openingBalance += round2(sale.total) - paidAtSale(sale, appliedBySale[sale._id.toString()] || 0);
+    }
+    for (const payment of allPayments) {
+      const date = new Date(payment.paymentDate || payment.createdAt);
+      if (date < start) openingBalance -= round2(payment.amount);
+    }
+    openingBalance = round2(openingBalance);
+
+    // ── PERIOD TRANSACTIONS ─────────────────────────────────────────
+    const entries = [];
+
+    for (const sale of allSales) {
+      const saleDate = new Date(sale.saleDate);
+      if (saleDate < start || saleDate > end) continue;
+
+      entries.push({
         type: 'sale',
-        date: s.saleDate,
-        reference: s.saleNumber,
-        amount: s.total,
-        detail: s.paymentMethod ? s.paymentMethod.replace(/_/g, ' ') : '',
-        items: s.items.map((i) => ({
+        date: sale.saleDate,
+        reference: sale.saleNumber,
+        description: `Sale invoice ${sale.saleNumber}`,
+        debit: round2(sale.total),
+        credit: 0,
+        amount: round2(sale.total),
+        detail: (sale.paymentMethod || '').replace(/_/g, ' '),
+        items: (sale.items || []).map((i) => ({
           productName: i.productName,
           quantity: i.quantity,
+          unit: i.unit,
           unitPrice: i.unitPrice,
           totalPrice: i.totalPrice,
         })),
-      })),
-      ...payments.map((p) => ({
-        type: 'payment',
-        date: p.paymentDate || p.createdAt,
-        reference: p.transactionNumber,
-        amount: p.amount,
-        detail: p.paymentMethod
-          ? p.paymentMethod.replace(/_/g, ' ')
-          : '',
-        items: [],
-      })),
-    ].sort((a, b) => new Date(a.date) - new Date(b.date));
+      });
 
-    // Compute running balance (sales add debt, payments reduce it)
-    let runningBalance = 0;
-    const transactions = allTxs.map((tx) => {
-      if (tx.type === 'sale') {
-        runningBalance += tx.amount;
-      } else {
-        runningBalance -= tx.amount;
+      const deposit = paidAtSale(sale, appliedBySale[sale._id.toString()] || 0);
+      if (deposit > 0) {
+        const methods = (sale.splitPayments || [])
+          .filter((p) => p.method !== 'credit' && p.amount > 0)
+          .map((p) => p.method.replace(/_/g, ' '))
+          .join(', ');
+        entries.push({
+          type: 'payment',
+          date: sale.saleDate,
+          reference: sale.saleNumber,
+          description: `Payment on sale ${sale.saleNumber}`,
+          debit: 0,
+          credit: deposit,
+          amount: deposit,
+          detail: methods || (sale.paymentMethod || '').replace(/_/g, ' '),
+          items: [],
+        });
       }
+    }
+
+    for (const payment of allPayments) {
+      const date = new Date(payment.paymentDate || payment.createdAt);
+      if (date < start || date > end) continue;
+      entries.push({
+        type: 'payment',
+        date,
+        reference: payment.transactionNumber,
+        description: `Debt payment ${payment.transactionNumber}`,
+        debit: 0,
+        credit: round2(payment.amount),
+        amount: round2(payment.amount),
+        detail: (payment.paymentMethod || '').replace(/_/g, ' '),
+        items: [],
+      });
+    }
+
+    entries.sort((a, b) => {
+      const diff = new Date(a.date) - new Date(b.date);
+      if (diff !== 0) return diff;
+      // A sale always comes before the payment made against it.
+      return a.type === 'sale' ? -1 : 1;
+    });
+
+    let runningBalance = openingBalance;
+    let totalDebits = 0;
+    let totalCredits = 0;
+
+    const transactions = entries.map((tx) => {
+      runningBalance = round2(runningBalance + tx.debit - tx.credit);
+      totalDebits = round2(totalDebits + tx.debit);
+      totalCredits = round2(totalCredits + tx.credit);
       return { ...tx, balance: runningBalance };
     });
 
-    const finalBalance = runningBalance;
+    const closingBalance = round2(runningBalance);
 
-    // Aging analysis — based on unpaid sales across all time
-    const now = new Date();
-    const unpaidSales = await Sale.find({
-      customer: customerId,
-      amountDue: { $gt: 0 },
-    });
-
+    // ── AGING (unpaid sales as at the statement end date) ───────────
     const aging = { above90: 0, days60to90: 0, days30to60: 0, days0to30: 0 };
-    for (const sale of unpaidSales) {
-      const daysDiff = Math.floor(
-        (now - new Date(sale.saleDate)) / (1000 * 60 * 60 * 24)
-      );
-      if (daysDiff > 90) aging.above90 += sale.amountDue;
-      else if (daysDiff > 60) aging.days60to90 += sale.amountDue;
-      else if (daysDiff > 30) aging.days30to60 += sale.amountDue;
-      else aging.days0to30 += sale.amountDue;
+    for (const sale of allSales) {
+      const outstanding = round2(sale.amountDue);
+      if (outstanding <= 0) continue;
+      const daysDiff = Math.floor((end - new Date(sale.saleDate)) / (1000 * 60 * 60 * 24));
+      if (daysDiff > 90) aging.above90 += outstanding;
+      else if (daysDiff > 60) aging.days60to90 += outstanding;
+      else if (daysDiff > 30) aging.days30to60 += outstanding;
+      else aging.days0to30 += outstanding;
     }
+    Object.keys(aging).forEach((k) => {
+      aging[k] = round2(aging[k]);
+    });
 
     res.json({
       success: true,
       data: {
         customer,
+        period: { startDate: start, endDate: end },
+        openingBalance,
         transactions,
-        finalBalance,
+        totals: {
+          debits: totalDebits,
+          credits: totalCredits,
+          openingBalance,
+          closingBalance,
+        },
+        closingBalance,
+        finalBalance: closingBalance, // backwards compatible
+        currentCredit: round2(customer.currentCredit),
         aging,
       },
     });
@@ -308,6 +383,7 @@ export const getCustomerStatement = async (req, res) => {
     });
   }
 };
+
 
 export const createCustomer = async (req, res) => {
   try {

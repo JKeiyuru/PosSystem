@@ -1,6 +1,6 @@
-// server/utils/emailService.js - COMPREHENSIVE BUSINESS SUMMARY
+// server/utils/emailService.js - COMPREHENSIVE BUSINESS SUMMARY (sent via Brevo)
 
-import { Resend } from 'resend';
+import { sendEmail, isEmailConfigured } from './brevoMailer.js';
 import Sale from '../models/Sale.model.js';
 import Product from '../models/Product.model.js';
 import Settings from '../models/Settings.model.js';
@@ -9,17 +9,10 @@ import ReceivingInvoice from '../models/ReceivingInvoice.model.js';
 import Customer from '../models/Customer.model.js';
 import Production from '../models/Production.model.js';
 
-// Initialize Resend
-let resend;
-try {
-  if (!process.env.RESEND_API_KEY) {
-    console.warn('⚠️ RESEND_API_KEY not set - emails will not be sent');
-  } else {
-    resend = new Resend(process.env.RESEND_API_KEY);
-    console.log('✅ Resend email service initialized');
-  }
-} catch (error) {
-  console.error('❌ Failed to initialize Resend:', error.message);
+if (!process.env.BREVO_API_KEY) {
+  console.warn('⚠️ BREVO_API_KEY not set - emails will not be sent');
+} else {
+  console.log('✅ Brevo email service initialized');
 }
 
 const formatCurrency = (amount) => {
@@ -33,9 +26,10 @@ const formatCurrency = (amount) => {
 // COMPREHENSIVE DAILY BUSINESS REPORT
 export const sendComprehensiveDailyReport = async (dailyReportId) => {
   try {
-    if (!resend) {
-      throw new Error('Email service not configured - RESEND_API_KEY missing');
+    if (!isEmailConfigured()) {
+      throw new Error('Email service not configured - BREVO_API_KEY missing');
     }
+
 
     const settings = await Settings.findOne();
     
@@ -80,7 +74,11 @@ export const sendComprehensiveDailyReport = async (dailyReportId) => {
     const lowStockProducts = await Product.find({
       isActive: true,
       $expr: { $lte: ['$quantity', '$reorderLevel'] }
-    }).sort({ quantity: 1 }).limit(10);
+    }).sort({ quantity: 1 });
+
+    const outOfStockProducts = lowStockProducts.filter(p => (p.quantity || 0) <= 0);
+    const reorderProducts = lowStockProducts.filter(p => (p.quantity || 0) > 0);
+
 
     // 4. GET TOP CUSTOMERS BY SPENDING
     const customerSpending = await Sale.aggregate([
@@ -453,38 +451,70 @@ export const sendComprehensiveDailyReport = async (dailyReportId) => {
 
             ${lowStockProducts.length > 0 ? `
               <div class="section">
-                <h2>📉 Low Stock Alert</h2>
+                <h2>📉 Stock Replenishment List</h2>
                 <div class="alert">
-                  <h3 style="margin-top: 0;">⚠️ ${lowStockProducts.length} Product(s) Running Low</h3>
-                  <p>The following products need restocking:</p>
+                  <h3 style="margin-top: 0;">⚠️ ${lowStockProducts.length} Product(s) Need Attention</h3>
+                  <p>
+                    <strong>${outOfStockProducts.length}</strong> out of stock &nbsp;•&nbsp;
+                    <strong>${reorderProducts.length}</strong> at or below re-order level
+                  </p>
                 </div>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Product</th>
-                      <th style="text-align: center;">Current Stock</th>
-                      <th style="text-align: center;">Reorder Level</th>
-                      <th style="text-align: center;">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${lowStockProducts.map(product => `
+
+                ${outOfStockProducts.length > 0 ? `
+                  <h3 style="color: #b45309;">🚫 Out of Stock (${outOfStockProducts.length})</h3>
+                  <table>
+                    <thead>
                       <tr>
-                        <td><strong>${product.name}</strong></td>
-                        <td style="text-align: center; color: ${product.quantity === 0 ? '#ef4444' : '#f59e0b'}; font-weight: bold;">
-                          ${product.quantity} ${product.baseUnit}
-                        </td>
-                        <td style="text-align: center;">${product.reorderLevel} ${product.baseUnit}</td>
-                        <td style="text-align: center;">
-                          <span class="highlight" style="background-color: ${product.quantity === 0 ? '#fecaca' : '#fed7aa'};">
-                            ${product.quantity === 0 ? 'OUT OF STOCK' : 'LOW STOCK'}
-                          </span>
-                        </td>
+                        <th>Product</th>
+                        <th>Category</th>
+                        <th style="text-align: center;">Re-order Level</th>
+                        <th>Supplier</th>
                       </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody>
+                      ${outOfStockProducts.map(product => `
+                        <tr>
+                          <td><strong>${product.name}</strong></td>
+                          <td>${product.category || '-'}</td>
+                          <td style="text-align: center;">${product.reorderLevel} ${product.baseUnit}</td>
+                          <td>${product.supplier || '-'}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                ` : ''}
+
+                ${reorderProducts.length > 0 ? `
+                  <h3 style="color: #047857;">🔁 At / Below Re-order Level (${reorderProducts.length})</h3>
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Product</th>
+                        <th style="text-align: center;">Current Stock</th>
+                        <th style="text-align: center;">Re-order Level</th>
+                        <th style="text-align: center;">Shortfall</th>
+                        <th>Supplier</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      ${reorderProducts.map(product => `
+                        <tr>
+                          <td><strong>${product.name}</strong></td>
+                          <td style="text-align: center; color: #b45309; font-weight: bold;">
+                            ${product.quantity} ${product.baseUnit}
+                          </td>
+                          <td style="text-align: center;">${product.reorderLevel} ${product.baseUnit}</td>
+                          <td style="text-align: center;">
+                            ${Math.max(0, (product.reorderLevel || 0) - (product.quantity || 0))} ${product.baseUnit}
+                          </td>
+                          <td>${product.supplier || '-'}</td>
+                        </tr>
+                      `).join('')}
+                    </tbody>
+                  </table>
+                ` : ''}
               </div>
+
             ` : ''}
 
             <!-- REPORT DETAILS -->
@@ -512,9 +542,8 @@ export const sendComprehensiveDailyReport = async (dailyReportId) => {
     // Send email to all recipients
     console.log(`📧 Sending email to ${settings.reportRecipients.length} recipient(s)...`);
     
-    const emailPromises = settings.reportRecipients.map(recipient => 
-      resend.emails.send({
-        from: process.env.BUSINESS_EMAIL,
+    const emailPromises = settings.reportRecipients.map(recipient =>
+      sendEmail({
         to: recipient,
         subject: `📊 Daily Business Report - ${new Date(dailyReport.reportDate).toLocaleDateString('en-KE', { month: 'long', day: 'numeric', year: 'numeric' })}`,
         html: emailHTML
@@ -524,7 +553,7 @@ export const sendComprehensiveDailyReport = async (dailyReportId) => {
     const results = await Promise.all(emailPromises);
     
     console.log('✅ Comprehensive daily report sent successfully to all recipients');
-    console.log('Email IDs:', results.map(r => r.data?.id || r.id).join(', '));
+    console.log('Email IDs:', results.map(r => r?.messageId || '').filter(Boolean).join(', '));
 
     return { success: true, message: 'Email sent successfully', emailIds: results };
   } catch (error) {
@@ -536,8 +565,8 @@ export const sendComprehensiveDailyReport = async (dailyReportId) => {
 // Send low stock alert
 export const sendLowStockAlert = async (product) => {
   try {
-    if (!resend) {
-      throw new Error('Email service not configured');
+    if (!isEmailConfigured()) {
+      throw new Error('Email service not configured (BREVO_API_KEY missing)');
     }
 
     const settings = await Settings.findOne();
@@ -596,8 +625,7 @@ export const sendLowStockAlert = async (product) => {
 
     const results = await Promise.all(
       settings.reportRecipients.map(recipient =>
-        resend.emails.send({
-          from: process.env.BUSINESS_EMAIL,
+        sendEmail({
           to: recipient,
           subject: `⚠️ Low Stock Alert - ${product.name}`,
           html: emailHTML

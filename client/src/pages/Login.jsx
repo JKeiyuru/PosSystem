@@ -35,11 +35,11 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 to-emerald-100 p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1 text-center">
           <div className="flex justify-center mb-4">
-            <div className="h-16 w-16 bg-blue-600 rounded-full flex items-center justify-center">
+            <div className="h-16 w-16 bg-emerald-600 rounded-full flex items-center justify-center">
               <ShoppingBag className="h-8 w-8 text-white" />
             </div>
           </div>

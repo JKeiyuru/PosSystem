@@ -247,18 +247,18 @@ export default function Dashboard() {
 
         {/* Credit Collections - Money received from old debts */}
         <Card 
-          className="bg-gradient-to-br from-blue-50 to-blue-100 border-blue-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
+          className="bg-gradient-to-br from-emerald-50 to-emerald-100 border-emerald-200 col-span-2 md:col-span-1 cursor-pointer hover:shadow-lg transition-shadow"
           onClick={() => setShowCreditCollectionsSheet(true)}
         >
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 p-3 sm:p-6">
             <CardTitle className="text-xs sm:text-sm font-medium">Credit Collections</CardTitle>
-            <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-blue-600" />
+            <CreditCard className="h-3 w-3 sm:h-4 sm:w-4 text-emerald-600" />
           </CardHeader>
           <CardContent className="p-3 sm:p-6 pt-0">
-            <div className="text-lg sm:text-2xl font-bold text-blue-700">
+            <div className="text-lg sm:text-2xl font-bold text-emerald-700">
               {formatCurrency(stats.todayCreditPayments)}
             </div>
-            <p className="text-xs text-blue-600">
+            <p className="text-xs text-emerald-600">
               Money from old debts
             </p>
           </CardContent>
@@ -318,12 +318,12 @@ export default function Dashboard() {
       </div>
 
       {/* Revenue Breakdown Alert */}
-      <Alert className="bg-blue-50 border-blue-200">
-        <AlertTitle className="flex items-center text-blue-800">
+      <Alert className="bg-emerald-50 border-emerald-200">
+        <AlertTitle className="flex items-center text-emerald-800">
           <CheckCircle className="h-4 w-4 mr-2" />
           Revenue Calculation Breakdown
         </AlertTitle>
-        <AlertDescription className="text-blue-700 text-sm">
+        <AlertDescription className="text-emerald-700 text-sm">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
             <div>
               <strong>Today's Revenue ({formatCurrency(stats.todayRevenue)}) =</strong>
@@ -386,7 +386,7 @@ export default function Dashboard() {
               No monthly data available yet
             </div>
           )}
-          <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm">
+          <div className="mt-4 p-3 bg-emerald-50 rounded-lg text-sm">
             <p className="text-gray-700">
               <strong>Note:</strong> This chart shows total revenue and net profit for each month. 
               Revenue includes cash, M-Pesa, and credit payments received during that month.
@@ -554,7 +554,7 @@ export default function Dashboard() {
               <p className="mt-3 text-sm">
                 The data will start accumulating fresh from today. This action cannot be undone.
               </p>
-              <p className="mt-2 text-sm font-semibold text-blue-600">
+              <p className="mt-2 text-sm font-semibold text-emerald-600">
                 Note: Monthly Revenue & Net Profit chart will NOT be affected.
               </p>
             </AlertDescription>
@@ -638,10 +638,10 @@ export default function Dashboard() {
                   <div className="text-lg sm:text-2xl font-bold text-orange-600">{formatCurrency(stats.todayCreditGiven)}</div>
                 </CardContent>
               </Card>
-              <Card className="col-span-2 md:col-span-1 bg-blue-50">
+              <Card className="col-span-2 md:col-span-1 bg-emerald-50">
                 <CardContent className="p-3 sm:p-6">
                   <div className="text-xs sm:text-sm text-gray-600">Collections</div>
-                  <div className="text-lg sm:text-2xl font-bold text-blue-600">{formatCurrency(stats.todayCreditPayments)}</div>
+                  <div className="text-lg sm:text-2xl font-bold text-emerald-600">{formatCurrency(stats.todayCreditPayments)}</div>
                 </CardContent>
               </Card>
             </div>

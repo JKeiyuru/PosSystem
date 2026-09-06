@@ -126,7 +126,7 @@ export const Sidebar = ({ isOpen, onClose }) => {
               className={cn(
                 "flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors",
                 isActive 
-                  ? "bg-blue-600 text-white" 
+                  ? "bg-emerald-600 text-white" 
                   : "text-gray-300 hover:bg-gray-800 hover:text-white"
               )}
             >

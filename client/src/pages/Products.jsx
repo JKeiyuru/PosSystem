@@ -522,7 +522,7 @@ export default function Products() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         {product.hasMultipleUnits && (
-                          <Package className="h-4 w-4 text-blue-500" title="Multiple units" />
+                          <Package className="h-4 w-4 text-emerald-500" title="Multiple units" />
                         )}
                         {product.name}
                       </div>
@@ -544,7 +544,7 @@ export default function Products() {
                       )}
                     </TableCell>
                     <TableCell>{product.baseUnitSize || 50} kg</TableCell>
-                    <TableCell className="font-semibold text-blue-600">
+                    <TableCell className="font-semibold text-emerald-600">
                       {formatCurrency(product.sellingPrice)}
                     </TableCell>
                     {!isCashier && (

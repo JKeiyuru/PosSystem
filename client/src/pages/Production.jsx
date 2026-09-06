@@ -979,20 +979,20 @@ export default function Production() {
           </Card>
 
           {productionActive && (
-            <Card className="border-2 border-blue-500 bg-blue-50">
+            <Card className="border-2 border-emerald-500 bg-emerald-50">
               <CardContent className="pt-6">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="font-semibold text-blue-900">🔄 Production in Progress ({productionType === 'standard' ? 'Standard' : 'Custom'})</p>
-                    <p className="text-sm text-blue-700">
+                    <p className="font-semibold text-emerald-900">🔄 Production in Progress ({productionType === 'standard' ? 'Standard' : 'Custom'})</p>
+                    <p className="text-sm text-emerald-700">
                       {productionType === 'standard' 
                         ? 'Select final product and enter output quantity below' 
                         : 'Enter customer details, output quantity, and pricing below'}
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-sm text-blue-700">Total Cost</p>
-                    <p className="text-2xl font-bold text-blue-900">{formatCurrency(calculateTotalCost())}</p>
+                    <p className="text-sm text-emerald-700">Total Cost</p>
+                    <p className="text-2xl font-bold text-emerald-900">{formatCurrency(calculateTotalCost())}</p>
                     {productionType === 'custom' && sellingPrice && (
                       <>
                         <p className="text-sm text-green-700 mt-2">Expected Revenue</p>
@@ -1032,7 +1032,7 @@ export default function Production() {
                         <CardContent className="p-4">
                           <h3 className="font-semibold text-sm truncate mb-2">{product.name}</h3>
                           <p className="text-xs text-gray-600">Stock: {product.quantity} {product.baseUnit}</p>
-                          <p className="text-sm text-blue-600 font-semibold">S: {formatCurrency(product.sellingPrice)}</p>
+                          <p className="text-sm text-emerald-600 font-semibold">S: {formatCurrency(product.sellingPrice)}</p>
                           <p className="text-sm text-green-600 font-semibold">B: {formatCurrency(product.buyingPrice)}</p>
                           {product.hasMultipleUnits && (
                             <p className="text-xs text-purple-600 mt-1">Multi-unit</p>
@@ -1135,7 +1135,7 @@ export default function Production() {
                             )}
                             
                             {ing.quantity && (
-                              <p className="text-xs text-blue-600 font-semibold">
+                              <p className="text-xs text-emerald-600 font-semibold">
                                 Cost: {formatCurrency(getCurrentPrice(ing) * ing.quantity)}
                               </p>
                             )}
@@ -1182,9 +1182,9 @@ export default function Production() {
                             </div>
                           </div>
                           
-                          <div className="p-3 bg-blue-50 rounded-lg mt-2">
+                          <div className="p-3 bg-emerald-50 rounded-lg mt-2">
                             <p className="text-sm font-semibold mb-1">Total Output for Inventory:</p>
-                            <p className="text-lg font-bold text-blue-600">
+                            <p className="text-lg font-bold text-emerald-600">
                               {parseFloat(outputBags || 0)} bags + {parseFloat(outputKgs || 0)} kgs
                             </p>
                             <p className="text-xs text-gray-600 mt-2">
@@ -1235,7 +1235,7 @@ export default function Production() {
                           </div>
 
                           {sellingPrice && (
-                            <div className="p-3 bg-blue-50 rounded-lg">
+                            <div className="p-3 bg-emerald-50 rounded-lg">
                               <div className="grid grid-cols-2 gap-4">
                                 <div>
                                   <p className="text-sm text-gray-600">Production Cost:</p>
@@ -1245,7 +1245,7 @@ export default function Production() {
                                 </div>
                                 <div>
                                   <p className="text-sm text-gray-600">Selling Price:</p>
-                                  <p className="text-lg font-bold text-blue-600">
+                                  <p className="text-lg font-bold text-emerald-600">
                                     {formatCurrency(parseFloat(sellingPrice))}
                                   </p>
                                 </div>
@@ -1284,7 +1284,7 @@ export default function Production() {
             <CardContent>
               <div className="grid gap-4">
                 {formulas.map((formula) => (
-                  <Card key={formula._id} className="border-2 hover:border-blue-500 transition-colors">
+                  <Card key={formula._id} className="border-2 hover:border-emerald-500 transition-colors">
                     <CardContent className="pt-6">
                       <div className="flex justify-between items-start">
                         <div className="flex-1">
@@ -1293,7 +1293,7 @@ export default function Production() {
                             Type: {formula.type === 'standard' ? 'Standard (TELE)' : 'Custom Combination'}
                           </p>
                           {formula.type === 'standard' && formula.finalProductName && (
-                            <p className="text-sm text-blue-600">Final Product: {formula.finalProductName}</p>
+                            <p className="text-sm text-emerald-600">Final Product: {formula.finalProductName}</p>
                           )}
                           {formula.type === 'custom' && formula.customerName && (
                             <p className="text-sm text-purple-600">Customer: {formula.customerName}</p>
@@ -1480,7 +1480,7 @@ export default function Production() {
                         <TableCell>{formatCurrency(ing.unitCost * ing.quantity)}</TableCell>
                         <TableCell>
                           <span className={`text-xs px-2 py-1 rounded ${
-                            ing.usedBuyingPrice ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                            ing.usedBuyingPrice ? 'bg-green-100 text-green-700' : 'bg-emerald-100 text-emerald-700'
                           }`}>
                             {ing.usedBuyingPrice ? 'Buying' : 'Selling'}
                           </span>
@@ -1533,7 +1533,7 @@ export default function Production() {
               </div>
 
               {/* Output Details */}
-              <div className="p-4 bg-blue-50 rounded-lg">
+              <div className="p-4 bg-emerald-50 rounded-lg">
                 <h4 className="font-semibold mb-2">Output Details</h4>
                 {selectedProductionDetails.type === 'standard' ? (
                   <div className="space-y-1 text-sm">
@@ -1570,8 +1570,8 @@ export default function Production() {
           </DialogHeader>
           <div className="py-4 space-y-3">
             <p>Are you sure you want to delete the formula <strong>"{formulaToDelete?.name}"</strong>?</p>
-            <Alert className="bg-blue-50 border-blue-200">
-              <AlertDescription className="text-blue-800 text-sm">
+            <Alert className="bg-emerald-50 border-emerald-200">
+              <AlertDescription className="text-emerald-800 text-sm">
                 This will only delete the formula template. All past production records that used this formula will <strong>not</strong> be affected.
               </AlertDescription>
             </Alert>
@@ -1706,10 +1706,10 @@ export default function Production() {
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>Complete Sale - Payment</DialogTitle></DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="p-4 bg-blue-50 rounded-lg">
+            <div className="p-4 bg-emerald-50 rounded-lg">
               <div className="flex justify-between mb-2">
                 <span className="font-semibold">Total Amount:</span>
-                <span className="text-2xl font-bold text-blue-600">
+                <span className="text-2xl font-bold text-emerald-600">
                   {formatCurrency(parseFloat(sellingPrice || 0))}
                 </span>
               </div>
@@ -1762,7 +1762,7 @@ export default function Production() {
               {change > 0 && (
                 <div className="flex justify-between text-sm border-t pt-2">
                   <span>Change:</span>
-                  <span className="font-semibold text-blue-600">{formatCurrency(change)}</span>
+                  <span className="font-semibold text-emerald-600">{formatCurrency(change)}</span>
                 </div>
               )}
               {totalPaid < parseFloat(sellingPrice || 0) && (
@@ -1934,7 +1934,7 @@ export default function Production() {
                     <div className="text-xs text-gray-600 mt-2">
                       <p>Available: {ing.availableInUnit || ing.availableQuantity} {ing.unit}</p>
                       {ing.quantity && (
-                        <p className="text-blue-600 font-semibold">
+                        <p className="text-emerald-600 font-semibold">
                           Cost: {formatCurrency((ing.currentSellingPrice || ing.sellingPrice) * ing.quantity)}
                         </p>
                       )}
@@ -1996,9 +1996,9 @@ export default function Production() {
                 </div>
 
                 {selectedFormula && (
-                  <div className="p-3 bg-blue-50 rounded-lg">
+                  <div className="p-3 bg-emerald-50 rounded-lg">
                     <p className="text-sm font-semibold mb-1">Expected Scaled Output:</p>
-                    <p className="text-lg font-bold text-blue-600">
+                    <p className="text-lg font-bold text-emerald-600">
                       {((selectedFormula.defaultOutputBags || 0) * getScaleMultiplier()).toFixed(1)} bags + 
                       {((selectedFormula.defaultOutputKgs || 0) * getScaleMultiplier()).toFixed(1)} kgs
                     </p>
@@ -2035,9 +2035,9 @@ export default function Production() {
         <DialogContent className="max-w-2xl max-h-[80vh]">
           <DialogHeader><DialogTitle>Add New Ingredient to Formula</DialogTitle></DialogHeader>
           <div className="space-y-4">
-            <Alert className="bg-blue-50 border-blue-200">
+            <Alert className="bg-emerald-50 border-emerald-200">
               <AlertDescription>
-                <p className="text-sm text-blue-800">
+                <p className="text-sm text-emerald-800">
                   Select a product to add to this formula execution. You'll be asked later if you want to save this addition to the formula permanently.
                 </p>
               </AlertDescription>
@@ -2058,7 +2058,7 @@ export default function Production() {
                 {addIngredientProducts.map((product) => (
                   <Card
                     key={product._id}
-                    className="cursor-pointer hover:shadow-md hover:border-blue-500 transition-all"
+                    className="cursor-pointer hover:shadow-md hover:border-emerald-500 transition-all"
                     onClick={() => addNewIngredientToFormula(product)}
                   >
                     <CardContent className="p-3">
@@ -2067,7 +2067,7 @@ export default function Production() {
                           <h3 className="font-semibold text-sm">{product.name}</h3>
                           <p className="text-xs text-gray-600 mt-1">Stock: {product.quantity} {product.baseUnit}</p>
                           <div className="flex gap-3 mt-1">
-                            <p className="text-xs text-blue-600">Sell: {formatCurrency(product.sellingPrice)}</p>
+                            <p className="text-xs text-emerald-600">Sell: {formatCurrency(product.sellingPrice)}</p>
                             <p className="text-xs text-green-600">Buy: {formatCurrency(product.buyingPrice)}</p>
                           </div>
                           {product.hasMultipleUnits && product.subUnits.length > 0 && (
@@ -2095,12 +2095,12 @@ export default function Production() {
         <DialogContent>
           <DialogHeader><DialogTitle>Save New Ingredients to Formula?</DialogTitle></DialogHeader>
           <div className="py-4 space-y-4">
-            <Alert className="bg-blue-50 border-blue-200">
+            <Alert className="bg-emerald-50 border-emerald-200">
               <AlertDescription>
-                <p className="text-sm text-blue-800 mb-2">
+                <p className="text-sm text-emerald-800 mb-2">
                   You've added {newlyAddedIngredients.length} new ingredient{newlyAddedIngredients.length > 1 ? 's' : ''} to this formula execution:
                 </p>
-                <ul className="list-disc list-inside text-sm text-blue-700 space-y-1">
+                <ul className="list-disc list-inside text-sm text-emerald-700 space-y-1">
                   {newlyAddedIngredients.map((ing, idx) => (
                     <li key={idx}>
                       {ing.productName} - {ing.quantity} {ing.unit}
@@ -2166,7 +2166,7 @@ export default function Production() {
                 {substitutionProducts.map((product) => (
                   <Card
                     key={product._id}
-                    className="cursor-pointer hover:shadow-md hover:border-blue-500 transition-all"
+                    className="cursor-pointer hover:shadow-md hover:border-emerald-500 transition-all"
                     onClick={() => substituteIngredient(product)}
                   >
                     <CardContent className="p-3">

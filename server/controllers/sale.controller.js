@@ -1,4 +1,6 @@
-// server/controllers/sale.controller.js - COMPLETELY FIXED revenue calculations
+// server/controllers/sale.controller.js
+// Revenue calculations now go through utils/salesCalculations.js so that every
+// screen (dashboard, daily report, reports, email) agrees on the numbers.
 
 import Sale from '../models/Sale.model.js';
 import Product from '../models/Product.model.js';
@@ -6,101 +8,26 @@ import Customer from '../models/Customer.model.js';
 import StockMovement from '../models/StockMovement.model.js';
 import PaymentTransaction from '../models/PaymentTransaction.model.js';
 import mongoose from 'mongoose';
+import {
+  calculateSalesBreakdown,
+  getDayRange,
+  formatCurrency,
+  round2,
+} from '../utils/salesCalculations.js';
 
 export const getDailySales = async (req, res) => {
   try {
     const { date } = req.query;
-    const targetDate = date ? new Date(date) : new Date();
-    
-    const startOfDay = new Date(targetDate);
-    startOfDay.setHours(0, 0, 0, 0);
-    
-    const endOfDay = new Date(targetDate);
-    endOfDay.setHours(23, 59, 59, 999);
+    const { start: startOfDay, end: endOfDay } = getDayRange(date ? new Date(date) : new Date());
 
-    const sales = await Sale.find({
-      saleDate: {
-        $gte: startOfDay,
-        $lte: endOfDay
-      }
-    }).populate('customer').populate('cashier', 'name');
+    const [sales, creditPayments] = await Promise.all([
+      Sale.find({ saleDate: { $gte: startOfDay, $lte: endOfDay } })
+        .populate('customer')
+        .populate('cashier', 'name'),
+      PaymentTransaction.find({ paymentDate: { $gte: startOfDay, $lte: endOfDay } }),
+    ]);
 
-    // Get credit payments collected today (from PaymentTransaction)
-    const creditPayments = await PaymentTransaction.find({
-      paymentDate: {
-        $gte: startOfDay,
-        $lte: endOfDay
-      }
-    });
-
-    console.log(`=== DAILY SALES ANALYSIS for ${startOfDay.toDateString()} ===`);
-    console.log(`Found ${sales.length} sales transactions`);
-    console.log(`Found ${creditPayments.length} credit payment transactions`);
-
-    // CRITICAL FIX: Calculate revenue CORRECTLY
-    // 1. CASH SALES (money received today for cash sales)
-    const cashSales = sales
-      .filter(s => s.paymentMethod === 'cash')
-      .reduce((sum, s) => sum + (s.amountPaid || 0), 0);
-
-    // 2. M-PESA SALES (all M-Pesa payment methods from direct sales)
-    const mpesaPaybill = sales
-      .filter(s => s.paymentMethod === 'mpesa_paybill')
-      .reduce((sum, s) => sum + (s.amountPaid || 0), 0);
-    
-    const mpesaBeth = sales
-      .filter(s => s.paymentMethod === 'mpesa_beth')
-      .reduce((sum, s) => sum + (s.amountPaid || 0), 0);
-    
-    const mpesaMartin = sales
-      .filter(s => s.paymentMethod === 'mpesa_martin')
-      .reduce((sum, s) => sum + (s.amountPaid || 0), 0);
-    
-    const mpesaTill = sales
-      .filter(s => s.paymentMethod === 'mpesa_till')
-      .reduce((sum, s) => sum + (s.amountPaid || 0), 0);
-
-    const gdcPaybill = sales
-      .filter(s => s.paymentMethod === 'gdc_paybill')
-      .reduce((sum, s) => sum + (s.amountPaid || 0), 0);
-    
-    const totalMpesa = mpesaPaybill + mpesaBeth + mpesaMartin + mpesaTill + gdcPaybill;
-
-    // 3. CREDIT GIVEN TODAY (NOT revenue yet)
-    const creditSalesToday = sales
-      .filter(s => s.paymentMethod === 'credit')
-      .reduce((sum, s) => sum + s.total, 0);
-
-    // 4. CREDIT PAYMENTS COLLECTED TODAY (IS revenue)
-    const creditPaymentsCash = creditPayments
-      .filter(p => p.paymentMethod === 'cash')
-      .reduce((sum, p) => sum + (p.amount || 0), 0);
-    
-    const creditPaymentsMpesa = creditPayments
-      .filter(p => p.paymentMethod.includes('mpesa') || p.paymentMethod.includes('gdc'))
-      .reduce((sum, p) => sum + (p.amount || 0), 0);
-    
-    const totalCreditPayments = creditPaymentsCash + creditPaymentsMpesa;
-
-    // 5. TOTAL REVENUE TODAY (ACTUAL MONEY RECEIVED)
-    const totalRevenueToday = cashSales + totalMpesa + totalCreditPayments;
-
-    // 6. Breakdown for dashboard
-    console.log('\n=== REVENUE BREAKDOWN ===');
-    console.log(`1. Cash Sales: ${formatCurrency(cashSales)}`);
-    console.log(`2. M-Pesa Sales: ${formatCurrency(totalMpesa)}`);
-    console.log(`   - Paybill: ${formatCurrency(mpesaPaybill)}`);
-    console.log(`   - Beth: ${formatCurrency(mpesaBeth)}`);
-    console.log(`   - Martin: ${formatCurrency(mpesaMartin)}`);
-    console.log(`   - Till: ${formatCurrency(mpesaTill)}`);
-    console.log(`   - GDC: ${formatCurrency(gdcPaybill)}`);
-    console.log(`3. Credit Payments Collected: ${formatCurrency(totalCreditPayments)}`);
-    console.log(`   - Cash: ${formatCurrency(creditPaymentsCash)}`);
-    console.log(`   - M-Pesa: ${formatCurrency(creditPaymentsMpesa)}`);
-    console.log('========================');
-    console.log(`TOTAL REVENUE TODAY: ${formatCurrency(totalRevenueToday)}`);
-    console.log(`CREDIT GIVEN TODAY (not revenue): ${formatCurrency(creditSalesToday)}`);
-    console.log('========================\n');
+    const breakdown = calculateSalesBreakdown(sales, creditPayments);
 
     res.json({
       success: true,
@@ -108,37 +35,45 @@ export const getDailySales = async (req, res) => {
         sales,
         payments: creditPayments,
         summary: {
-          // Today's actual revenue (money received)
-          totalSales: totalRevenueToday,
-          
-          // Cash breakdown
-          cashSales: cashSales,
-          
-          // M-Pesa breakdown
-          totalMpesa: totalMpesa,
-          totalMpesaPaybill: mpesaPaybill,
-          totalMpesaBeth: mpesaBeth,
-          totalMpesaMartin: mpesaMartin,
-          totalMpesaTill: mpesaTill,
-          totalGdcPaybill: gdcPaybill,
-          
-          // Credit sales (NOT revenue yet - just for tracking)
-          totalCredit: creditSalesToday,
-          
-          // Credit payments collected today (IS revenue)
-          creditPaymentsToday: totalCreditPayments,
-          creditPaymentsCash: creditPaymentsCash,
-          creditPaymentsMpesa: creditPaymentsMpesa,
-          
+          // Money actually received today (cash + digital + debt repayments)
+          totalSales: breakdown.totalCollected,
+          totalCollected: breakdown.totalCollected,
+
+          // Everything sold today, credit included (turnover)
+          grossSalesValue: breakdown.grossSalesValue,
+
+          // Cash / digital detail
+          cashSales: breakdown.saleCashCollected,
+          totalMpesa: breakdown.saleDigitalCollected,
+          totalMpesaPaybill: breakdown.totalMpesaPaybill,
+          totalMpesaBeth: breakdown.totalMpesaBeth,
+          totalMpesaMartin: breakdown.totalMpesaMartin,
+          totalMpesaTill: breakdown.totalMpesaTill,
+          totalGdcPaybill: breakdown.totalGdcPaybill,
+          methodTotals: breakdown.methodTotals,
+
+          // Credit given today (new debt, NOT revenue)
+          totalCredit: breakdown.creditIssued,
+          creditIssued: breakdown.creditIssued,
+
+          // Debt repayments collected today (IS revenue)
+          creditPaymentsToday: breakdown.creditPaymentsCollected,
+          creditPaymentsCash: breakdown.creditPaymentsCash,
+          creditPaymentsMpesa: breakdown.creditPaymentsDigital,
+
+          // Profitability
+          totalCost: breakdown.totalCost,
+          grossProfit: breakdown.grossProfit,
+
           // Counts
-          salesCount: sales.length,
-          paymentsCount: creditPayments.length,
-          
-          // For cash reconciliation
-          totalCash: cashSales + creditPaymentsCash,
-          totalDigital: totalMpesa + creditPaymentsMpesa
-        }
-      }
+          salesCount: breakdown.salesCount,
+          paymentsCount: breakdown.paymentsCount,
+
+          // Reconciliation
+          totalCash: breakdown.totalCash,
+          totalDigital: breakdown.totalDigital,
+        },
+      },
     });
   } catch (error) {
     console.error('Error in getDailySales:', error);
@@ -148,6 +83,7 @@ export const getDailySales = async (req, res) => {
     });
   }
 };
+
 
 export const createSale = async (req, res) => {
   const session = await mongoose.startSession();
@@ -246,38 +182,53 @@ export const createSale = async (req, res) => {
 
     // Calculate final totals
     const transportAmount = parseFloat(transport) || 0;
-    const total = subtotal - totalItemDiscounts + transportAmount;
+    const total = round2(subtotal - totalItemDiscounts + transportAmount);
 
-    // Handle split payments
-    let paidAmount = 0;
-    let finalPaymentMethod = paymentMethod;
-    let paymentBreakdown = null;
+    // ── PAYMENT NORMALISATION ─────────────────────────────────────────
+    // Every sale ends up with an explicit splitPayments array. Any line with
+    // method === 'credit' is DEBT, never money received. This is what makes
+    // the daily totals and the customer's debt correct.
+    let paymentLines = [];
 
-    if (splitPayments && splitPayments.length > 0) {
-      paymentBreakdown = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
-      paidAmount = paymentBreakdown.reduce((sum, p) => sum + parseFloat(p.amount), 0);
-      
-      if (paymentBreakdown.length > 0) {
-        const sortedPayments = [...paymentBreakdown].sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount));
-        finalPaymentMethod = sortedPayments[0].method;
-      }
+    if (Array.isArray(splitPayments) && splitPayments.length > 0) {
+      paymentLines = splitPayments
+        .filter((p) => p && p.method && parseFloat(p.amount) > 0)
+        .map((p) => ({ method: p.method, amount: round2(p.amount) }));
+    } else if (paymentMethod) {
+      const declared = round2(amountPaid);
+      const amount = paymentMethod === 'credit' ? total : declared > 0 ? declared : total;
+      paymentLines = [{ method: paymentMethod, amount }];
+    }
+
+    // Money actually received now (credit lines excluded).
+    const paidAmount = round2(
+      paymentLines
+        .filter((p) => p.method !== 'credit')
+        .reduce((sum, p) => sum + p.amount, 0)
+    );
+
+    // Anything not paid now is credit, whatever the client sent.
+    let calculatedAmountDue = round2(total - paidAmount);
+    if (calculatedAmountDue < 0.01) calculatedAmountDue = 0;
+
+    // Keep the credit line consistent with the real outstanding amount.
+    paymentLines = paymentLines.filter((p) => p.method !== 'credit');
+    if (calculatedAmountDue > 0) {
+      paymentLines.push({ method: 'credit', amount: calculatedAmountDue });
+    }
+
+    // Primary method = largest non-credit line, else 'credit'.
+    const nonCreditLines = paymentLines.filter((p) => p.method !== 'credit');
+    let finalPaymentMethod;
+    if (nonCreditLines.length > 0) {
+      finalPaymentMethod = [...nonCreditLines].sort((a, b) => b.amount - a.amount)[0].method;
     } else {
-      paidAmount = parseFloat(amountPaid) || 0;
+      finalPaymentMethod = 'credit';
     }
-
-    // CRITICAL FIX: For credit sales, amountPaid should be 0 unless partial payment
-    if (finalPaymentMethod === 'credit' && paidAmount === 0) {
-      paidAmount = 0; // Ensure no money counted today
-    }
-
-    let calculatedAmountDue = total - paidAmount;
-    if (calculatedAmountDue < 0) calculatedAmountDue = 0;
 
     // Determine payment status
     let finalPaymentStatus;
-    if (finalPaymentMethod === 'credit' && paidAmount === 0) {
-      finalPaymentStatus = 'unpaid';
-    } else if (paidAmount >= total) {
+    if (calculatedAmountDue <= 0) {
       finalPaymentStatus = 'paid';
     } else if (paidAmount > 0) {
       finalPaymentStatus = 'partial';
@@ -289,21 +240,27 @@ export const createSale = async (req, res) => {
     const cashierName = req.user.name;
     let customerName = null;
     let customerDoc = null;
-    
+
     if (customer) {
       customerDoc = await Customer.findById(customer).session(session);
       if (customerDoc) {
         customerName = customerDoc.name;
-        
-        // Check credit limit
-        if (finalPaymentMethod === 'credit') {
-          const newTotalCredit = customerDoc.currentCredit + calculatedAmountDue;
+
+        // Check credit limit whenever debt is being created.
+        // A credit limit of 0 means "no limit set".
+        if (calculatedAmountDue > 0 && customerDoc.creditLimit > 0) {
+          const newTotalCredit = round2(customerDoc.currentCredit + calculatedAmountDue);
           if (newTotalCredit > customerDoc.creditLimit) {
-            throw new Error(`Credit limit exceeded. Customer limit: ${formatCurrency(customerDoc.creditLimit)}, Current debt: ${formatCurrency(customerDoc.currentCredit)}, New sale: ${formatCurrency(calculatedAmountDue)}, Total would be: ${formatCurrency(newTotalCredit)}`);
+            throw new Error(
+              `Credit limit exceeded. Customer limit: ${formatCurrency(customerDoc.creditLimit)}, ` +
+              `Current debt: ${formatCurrency(customerDoc.currentCredit)}, ` +
+              `New credit: ${formatCurrency(calculatedAmountDue)}, ` +
+              `Total would be: ${formatCurrency(newTotalCredit)}`
+            );
           }
         }
       }
-    } else if (finalPaymentMethod === 'credit') {
+    } else if (calculatedAmountDue > 0) {
       throw new Error('Credit sales require a customer to be selected');
     }
 
@@ -315,9 +272,10 @@ export const createSale = async (req, res) => {
       transport: transportAmount,
       total,
       paymentMethod: finalPaymentMethod,
-      splitPayments: paymentBreakdown,
+      splitPayments: paymentLines,
       paymentStatus: finalPaymentStatus,
       amountPaid: paidAmount,
+      amountPaidAtSale: paidAmount,
       amountDue: calculatedAmountDue,
       customer: customer || null,
       customerName,
@@ -327,14 +285,15 @@ export const createSale = async (req, res) => {
       isCreditPayment: false
     }], { session });
 
-    // Update customer totals
+    // Update customer totals — credit ALWAYS accumulates onto existing debt.
     if (customerDoc) {
-      customerDoc.totalPurchases += total;
+      customerDoc.totalPurchases = round2(customerDoc.totalPurchases + total);
       if (calculatedAmountDue > 0) {
-        customerDoc.currentCredit += calculatedAmountDue;
+        customerDoc.currentCredit = round2(customerDoc.currentCredit + calculatedAmountDue);
       }
       await customerDoc.save({ session });
     }
+
 
     await session.commitTransaction();
 
@@ -638,12 +597,3 @@ export const deleteSale = async (req, res) => {
     session.endSession();
   }
 };
-
-// Helper function for currency formatting
-function formatCurrency(amount) {
-  return new Intl.NumberFormat('en-KE', {
-    style: 'currency',
-    currency: 'KES',
-    minimumFractionDigits: 0
-  }).format(amount);
-}

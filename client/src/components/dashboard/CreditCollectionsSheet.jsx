@@ -174,9 +174,9 @@ export default function CreditCollectionsSheet({ open, onOpenChange }) {
                 {formatCurrency(summary.totalPayments)}
               </div>
             </div>
-            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <div className="text-sm text-blue-700">Cash Collected</div>
-              <div className="text-2xl font-bold text-blue-900">
+            <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+              <div className="text-sm text-emerald-700">Cash Collected</div>
+              <div className="text-2xl font-bold text-emerald-900">
                 {formatCurrency(summary.cashPayments)}
               </div>
             </div>
@@ -189,8 +189,8 @@ export default function CreditCollectionsSheet({ open, onOpenChange }) {
           </div>
 
           {/* Important Note */}
-          <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-            <p className="text-sm text-blue-800">
+          <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-lg">
+            <p className="text-sm text-emerald-800">
               <strong>💰 Revenue Impact:</strong> These credit collections <strong>ARE counted as today's revenue</strong>. 
               When customers pay their debts, it becomes revenue on the day of payment.
             </p>

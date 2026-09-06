@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/
 import api from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { RefreshCw, AlertCircle } from 'lucide-react';
+import BackupSettings from '../components/settings/BackupSettings';
 
 const SyncCustomerCredits = () => {
   const [syncing, setSyncing] = useState(false);
@@ -571,24 +572,8 @@ export default function Settings() {
             </Card>
 
             <SyncCustomerCredits />
-            
-            {/* Additional data management tools can be added here in the future */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Other Data Tools</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg">
-                  <h4 className="font-semibold text-gray-800 mb-2">Coming Soon</h4>
-                  <p className="text-sm text-gray-600 mb-3">
-                    Additional data management tools will be added here as needed.
-                  </p>
-                  <Button disabled variant="outline" className="border-gray-300 text-gray-500">
-                    More tools coming soon...
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+
+            {user?.role === 'admin' && <BackupSettings />}
           </TabsContent>
 
           {/* Users Tab - Admin Only */}

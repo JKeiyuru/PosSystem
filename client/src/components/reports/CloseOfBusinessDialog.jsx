@@ -288,8 +288,8 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                 <h3 className="font-semibold text-lg">Daily Checks & Balances Preview</h3>
 
                 {/* CASH FLOW BREAKDOWN */}
-                <div className="p-4 bg-blue-50 rounded-lg border-2 border-blue-200">
-                  <h4 className="font-semibold mb-3 text-blue-900">💵 Cash Flow Today</h4>
+                <div className="p-4 bg-emerald-50 rounded-lg border-2 border-emerald-200">
+                  <h4 className="font-semibold mb-3 text-emerald-900">💵 Cash Flow Today</h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
                       <span className="text-gray-700">Opening Cash:</span>
@@ -311,9 +311,9 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                       <span className="text-gray-700">- Expenses Paid:</span>
                       <span className="font-semibold text-red-600">-{formatCurrency(preview.totalExpenses)}</span>
                     </div>
-                    <div className="flex justify-between pt-2 border-t-2 border-blue-300">
-                      <span className="font-bold text-blue-900">= Expected Cash:</span>
-                      <span className="font-bold text-blue-900">{formatCurrency(preview.expectedCash)}</span>
+                    <div className="flex justify-between pt-2 border-t-2 border-emerald-300">
+                      <span className="font-bold text-emerald-900">= Expected Cash:</span>
+                      <span className="font-bold text-emerald-900">{formatCurrency(preview.expectedCash)}</span>
                     </div>
                   </div>
                 </div>
@@ -399,7 +399,7 @@ export default function CloseOfBusinessDialog({ open, onOpenChange, onSuccess })
                     </div>
                     <div className="w-full bg-gray-200 rounded-full h-2">
                       <div 
-                        className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                        className="bg-emerald-600 h-2 rounded-full transition-all duration-300"
                         style={{ width: `${emailProgress}%` }}
                       />
                     </div>

@@ -212,7 +212,15 @@ export default function POS() {
     ));
   };
 
+  // Money actually received now (credit lines are NOT money received)
   const getTotalPaid = () => {
+    return splitPayments
+      .filter((payment) => payment.method !== 'credit')
+      .reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0);
+  };
+
+  // Everything entered, including credit lines (used to check the sale is fully allocated)
+  const getTotalAllocated = () => {
     return splitPayments.reduce((sum, payment) => sum + (parseFloat(payment.amount) || 0), 0);
   };
 
@@ -227,10 +235,10 @@ export default function POS() {
 
   const handleCheckout = async () => {
     const total = calculateTotal();
-    const totalPaid = getTotalPaid();
+    const totalPaid = getTotalPaid(); // excludes credit
 
     const validPayments = splitPayments.filter(p => p.amount && parseFloat(p.amount) > 0);
-    
+
     // Check if credit payment without customer
     const hasCreditPayment = splitPayments.some(p => p.method === 'credit');
     if (hasCreditPayment && (!selectedCustomer || selectedCustomer === 'none')) {
@@ -238,35 +246,34 @@ export default function POS() {
       return;
     }
 
-    if (validPayments.length === 0) {
-      const hasCredit = splitPayments.some(p => p.method === 'credit');
-      if (!hasCredit) {
-        alert('Please enter payment amounts');
-        return;
-      }
+    if (validPayments.length === 0 && !hasCreditPayment) {
+      alert('Please enter payment amounts');
+      return;
     }
 
-    const hasOnlyCredit = validPayments.length === 0 || validPayments.every(p => p.method === 'credit');
-    if (!hasOnlyCredit && totalPaid < total) {
-      alert('Insufficient payment amount');
+    // Anything not covered by actual payments becomes debt, which needs a customer
+    const balance = Math.round((total - totalPaid) * 100) / 100;
+    if (balance > 0 && (!selectedCustomer || selectedCustomer === 'none')) {
+      alert('⚠️ This sale is not fully paid. Select a customer so the balance can be recorded as credit.');
       return;
+    }
+
+    if (totalPaid > total + 0.01 && !hasCreditPayment) {
+      // allow overpayment (change) only for cash-style tenders; nothing to block here
     }
 
     try {
       setLoading(true);
 
-      let primaryPaymentMethod = 'cash';
-      let paymentStatus = 'paid';
-      
-      if (validPayments.length === 1) {
-        primaryPaymentMethod = validPayments[0].method;
-        if (primaryPaymentMethod === 'credit') {
-          paymentStatus = totalPaid >= total ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
-        }
-      } else if (validPayments.length > 1) {
-        const sortedPayments = [...validPayments].sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount));
-        primaryPaymentMethod = sortedPayments[0].method;
+      const nonCreditPayments = validPayments.filter(p => p.method !== 'credit');
+
+      let primaryPaymentMethod = 'credit';
+      if (nonCreditPayments.length > 0) {
+        const sorted = [...nonCreditPayments].sort((a, b) => parseFloat(b.amount) - parseFloat(a.amount));
+        primaryPaymentMethod = sorted[0].method;
       }
+
+      const paymentStatus = balance <= 0 ? 'paid' : (totalPaid > 0 ? 'partial' : 'unpaid');
 
       const saleData = {
         items: cart.map(item => ({
@@ -372,10 +379,10 @@ export default function POS() {
                         <div className="flex justify-between items-start mb-2">
                           <h3 className="font-semibold text-sm truncate flex-1">{product.name}</h3>
                           {product.hasMultipleUnits && (
-                            <Package className="h-4 w-4 text-blue-500 ml-1" title="Multiple units available" />
+                            <Package className="h-4 w-4 text-emerald-500 ml-1" title="Multiple units available" />
                           )}
                         </div>
-                        <p className="text-lg font-bold text-blue-600">{formatCurrency(product.sellingPrice)}</p>
+                        <p className="text-lg font-bold text-emerald-600">{formatCurrency(product.sellingPrice)}</p>
                         <div className="text-xs text-gray-500">
                           Stock: {getUnitDisplay(product)}
                         </div>
@@ -513,7 +520,7 @@ export default function POS() {
                   )}
 
                   {transport && parseFloat(transport) > 0 && (
-                    <div className="flex justify-between text-sm text-blue-600">
+                    <div className="flex justify-between text-sm text-emerald-600">
                       <span>Transport:</span>
                       <span>+{formatCurrency(parseFloat(transport))}</span>
                     </div>
@@ -707,7 +714,7 @@ export default function POS() {
               </Alert>
             )}
 
-            <div className="p-4 bg-blue-50 rounded-lg space-y-2">
+            <div className="p-4 bg-emerald-50 rounded-lg space-y-2">
               <div className="flex justify-between">
                 <span>Total Paid:</span>
                 <span className="font-bold text-green-600">{formatCurrency(totalPaid)}</span>
@@ -715,7 +722,7 @@ export default function POS() {
               {totalPaid > total && (
                 <div className="flex justify-between">
                   <span>Change:</span>
-                  <span className="font-bold text-blue-600">{formatCurrency(change)}</span>
+                  <span className="font-bold text-emerald-600">{formatCurrency(change)}</span>
                 </div>
               )}
               {totalPaid < total && (

@@ -422,7 +422,7 @@ export default function Debts() {
               </div>
 
               {paymentAmount && selectedCustomer.customerId && (
-                <div className="p-3 bg-blue-50 rounded-lg">
+                <div className="p-3 bg-emerald-50 rounded-lg">
                   <div className="flex justify-between text-sm mb-1">
                     <span>Payment Amount:</span>
                     <span className="font-semibold text-green-600">

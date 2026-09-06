@@ -157,9 +157,9 @@ export default function CreditSalesSheet({ open, onOpenChange }) {
                 {formatCurrency(summary.totalCreditSales)}
               </div>
             </div>
-            <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <div className="text-sm text-blue-700">Number of Sales</div>
-              <div className="text-2xl font-bold text-blue-900">
+            <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-200">
+              <div className="text-sm text-emerald-700">Number of Sales</div>
+              <div className="text-2xl font-bold text-emerald-900">
                 {summary.salesCount}
               </div>
             </div>

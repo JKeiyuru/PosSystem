@@ -628,7 +628,7 @@ export default function Vehicles() {
               </div>
             </div>
             {fuelForm.liters && fuelForm.costPerLiter && (
-              <div className="bg-blue-50 p-3 rounded-lg">
+              <div className="bg-emerald-50 p-3 rounded-lg">
                 <p className="text-sm text-gray-600">Total Cost:</p>
                 <p className="text-xl font-bold">{formatCurrency(parseFloat(fuelForm.liters) * parseFloat(fuelForm.costPerLiter))}</p>
               </div>

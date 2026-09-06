@@ -1,6 +1,6 @@
 // client/src/components/customers/CustomerStatement.jsx
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -69,12 +69,17 @@ export default function CustomerStatement({ customer, open, onOpenChange, busine
     onOpenChange(false);
   };
 
+  const totals = statementData?.totals || {};
+  const openingBalance = statementData?.openingBalance || 0;
+  const closingBalance =
+    statementData?.closingBalance ?? statementData?.finalBalance ?? 0;
+
   return (
     <Dialog open={open} onOpenChange={handleClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-blue-600" />
+            <FileText className="h-5 w-5 text-emerald-700" />
             Customer Statement — {customer?.name}
           </DialogTitle>
         </DialogHeader>
@@ -82,7 +87,7 @@ export default function CustomerStatement({ customer, open, onOpenChange, busine
         {/* Date Range Selector */}
         {!previewMode && (
           <div className="space-y-4 py-4">
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-muted-foreground">
               Select a date range to generate the customer statement.
             </p>
             <div className="grid grid-cols-2 gap-4">
@@ -127,25 +132,27 @@ export default function CustomerStatement({ customer, open, onOpenChange, busine
         {previewMode && statementData && (
           <div className="space-y-4">
             {/* Header */}
-            <div className="bg-blue-900 text-white rounded-lg p-4">
-              <h2 className="text-lg font-bold">{businessInfo?.businessName || 'Bekhal Animal Feeds'}</h2>
+            <div className="bg-emerald-800 text-white rounded-lg p-4">
+              <h2 className="text-lg font-bold">
+                {businessInfo?.businessName || 'Bekhal Animal Feeds'}
+              </h2>
               {businessInfo?.businessAddress && (
-                <p className="text-sm opacity-80">{businessInfo.businessAddress}</p>
+                <p className="text-sm opacity-90">{businessInfo.businessAddress}</p>
               )}
               {businessInfo?.businessPhone && (
-                <p className="text-sm opacity-80">{businessInfo.businessPhone}</p>
+                <p className="text-sm opacity-90">{businessInfo.businessPhone}</p>
               )}
             </div>
 
             <div className="text-center">
-              <h3 className="text-xl font-bold text-blue-900">CUSTOMER STATEMENT</h3>
-              <p className="text-sm text-gray-500">
+              <h3 className="text-xl font-bold text-emerald-800">CUSTOMER STATEMENT</h3>
+              <p className="text-sm text-muted-foreground">
                 Period: {formatDate(startDate)} — {formatDate(endDate)}
               </p>
             </div>
 
             {/* Customer Info */}
-            <div className="grid grid-cols-2 gap-2 text-sm border rounded-lg p-3 bg-gray-50">
+            <div className="grid grid-cols-2 gap-2 text-sm border rounded-lg p-3 bg-emerald-50/60">
               <div>
                 <span className="font-semibold">NAME:</span>{' '}
                 {statementData.customer?.name}
@@ -158,54 +165,62 @@ export default function CustomerStatement({ customer, open, onOpenChange, busine
                 <span className="font-semibold">CONTACTS:</span>{' '}
                 {statementData.customer?.phone}
               </div>
+              <div>
+                <span className="font-semibold">OPENING BALANCE:</span>{' '}
+                {formatCurrency(openingBalance)}
+              </div>
             </div>
 
             {/* Transactions Table */}
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse">
                 <thead>
-                  <tr className="bg-blue-900 text-white">
+                  <tr className="bg-emerald-800 text-white">
                     <th className="px-3 py-2 text-left">Date</th>
                     <th className="px-3 py-2 text-left">Particulars</th>
-                    <th className="px-3 py-2 text-right">Amount</th>
+                    <th className="px-3 py-2 text-right">Debit</th>
+                    <th className="px-3 py-2 text-right">Credit</th>
                     <th className="px-3 py-2 text-right">Balance</th>
                     <th className="px-3 py-2 text-left">Detail</th>
                   </tr>
                 </thead>
                 <tbody>
+                  <tr className="bg-amber-50 font-medium">
+                    <td className="px-3 py-1.5">{formatDate(startDate)}</td>
+                    <td className="px-3 py-1.5">Balance brought forward</td>
+                    <td className="px-3 py-1.5"></td>
+                    <td className="px-3 py-1.5"></td>
+                    <td className="px-3 py-1.5 text-right">
+                      {formatCurrency(openingBalance)}
+                    </td>
+                    <td className="px-3 py-1.5"></td>
+                  </tr>
                   {(statementData.transactions || []).map((tx, idx) => (
-                    <>
-                      <tr
-                        key={`tx-${idx}`}
-                        className={idx % 2 === 0 ? 'bg-white' : 'bg-blue-50'}
-                      >
+                    <React.Fragment key={`row-${idx}`}>
+                      <tr className={idx % 2 === 0 ? 'bg-white' : 'bg-emerald-50/50'}>
                         <td className="px-3 py-1.5 whitespace-nowrap">
                           {formatDate(tx.date)}
                         </td>
                         <td className="px-3 py-1.5">
-                          {tx.type === 'sale'
-                            ? `SALE INVOICE: ${tx.reference}`
-                            : `PAYMENT RECEIPT: ${tx.reference}`}
+                          {tx.description ||
+                            (tx.type === 'sale'
+                              ? `SALE INVOICE: ${tx.reference}`
+                              : `PAYMENT: ${tx.reference}`)}
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-medium text-emerald-800">
+                          {tx.debit ? formatCurrency(tx.debit) : ''}
+                        </td>
+                        <td className="px-3 py-1.5 text-right font-medium text-amber-700">
+                          {tx.credit ? formatCurrency(tx.credit) : ''}
                         </td>
                         <td
-                          className={`px-3 py-1.5 text-right font-medium ${
-                            tx.type === 'payment'
-                              ? 'text-red-600'
-                              : 'text-blue-700'
-                          }`}
-                        >
-                          {tx.type === 'payment'
-                            ? `-${formatCurrency(tx.amount)}`
-                            : formatCurrency(tx.amount)}
-                        </td>
-                        <td
-                          className={`px-3 py-1.5 text-right font-medium ${
-                            tx.balance > 0 ? 'text-red-600' : 'text-green-600'
+                          className={`px-3 py-1.5 text-right font-semibold ${
+                            tx.balance > 0 ? 'text-red-700' : 'text-emerald-700'
                           }`}
                         >
                           {formatCurrency(tx.balance)}
                         </td>
-                        <td className="px-3 py-1.5 text-gray-600">
+                        <td className="px-3 py-1.5 text-muted-foreground capitalize">
                           {tx.detail || ''}
                         </td>
                       </tr>
@@ -213,32 +228,49 @@ export default function CustomerStatement({ customer, open, onOpenChange, busine
                         (tx.items || []).map((item, iIdx) => (
                           <tr
                             key={`item-${idx}-${iIdx}`}
-                            className="bg-gray-50 text-xs"
+                            className="bg-muted/40 text-xs"
                           >
                             <td></td>
-                            <td className="px-6 py-1 text-gray-500 italic">
+                            <td className="px-6 py-1 text-muted-foreground italic">
                               {item.productName} — {item.quantity} x{' '}
                               {formatCurrency(item.unitPrice)} ={' '}
                               {formatCurrency(item.totalPrice)}
                             </td>
-                            <td colSpan={3}></td>
+                            <td colSpan={4}></td>
                           </tr>
                         ))}
-                    </>
+                    </React.Fragment>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="bg-emerald-100 text-emerald-900 font-bold">
+                    <td className="px-3 py-2" colSpan={2}>
+                      PERIOD TOTALS
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatCurrency(totals.debits || 0)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatCurrency(totals.credits || 0)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {formatCurrency(closingBalance)}
+                    </td>
+                    <td></td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
 
             {/* Final Balance */}
-            <div className="bg-blue-900 text-white rounded-lg px-4 py-3 flex justify-between font-bold text-base">
-              <span>BALANCE:</span>
-              <span>{formatCurrency(statementData.finalBalance || 0)}</span>
+            <div className="bg-emerald-800 text-white rounded-lg px-4 py-3 flex justify-between font-bold text-base">
+              <span>CLOSING BALANCE:</span>
+              <span>{formatCurrency(closingBalance)}</span>
             </div>
 
             {/* Aging */}
             <div>
-              <h4 className="text-sm font-bold text-blue-900 mb-2">
+              <h4 className="text-sm font-bold text-emerald-800 mb-2">
                 AGING ANALYSIS
               </h4>
               <div className="grid grid-cols-4 border rounded overflow-hidden text-xs text-center">
@@ -247,7 +279,7 @@ export default function CustomerStatement({ customer, open, onOpenChange, busine
                     const keys = ['above90', 'days60to90', 'days30to60', 'days0to30'];
                     return (
                       <div key={i}>
-                        <div className="bg-blue-100 text-blue-900 font-bold py-1 px-2">
+                        <div className="bg-emerald-100 text-emerald-900 font-bold py-1 px-2">
                           {label}
                         </div>
                         <div className="py-2 font-semibold">
@@ -261,7 +293,7 @@ export default function CustomerStatement({ customer, open, onOpenChange, busine
             </div>
 
             {/* Footer */}
-            <div className="text-xs text-gray-500 border-t pt-3">
+            <div className="text-xs text-muted-foreground border-t pt-3">
               <p className="italic mb-2">
                 NB: Complaints verified within 24 hours ONLY.
               </p>
@@ -272,10 +304,7 @@ export default function CustomerStatement({ customer, open, onOpenChange, busine
             </div>
 
             <DialogFooter className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => setPreviewMode(false)}
-              >
+              <Button variant="outline" onClick={() => setPreviewMode(false)}>
                 Back
               </Button>
               <Button variant="outline" onClick={handleClose}>

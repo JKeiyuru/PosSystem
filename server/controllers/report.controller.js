@@ -1,9 +1,11 @@
-// server/controllers/report.controller.js - FIXED profit calculations
+// server/controllers/report.controller.js - uses the shared sales calculation utility
 
 import Sale from '../models/Sale.model.js';
 import Product from '../models/Product.model.js';
 import Customer from '../models/Customer.model.js';
 import StockMovement from '../models/StockMovement.model.js';
+import PaymentTransaction from '../models/PaymentTransaction.model.js';
+import { calculateSalesBreakdown } from '../utils/salesCalculations.js';
 
 // Get monthly revenue and profit data - FIXED to use sale.grossProfit
 export const getMonthlyProfit = async (req, res) => {
@@ -73,27 +75,30 @@ export const getMonthlyProfit = async (req, res) => {
   }
 };
 
-// Get daily sales report - FIXED to use sale.grossProfit
+// Get daily/period sales report - money received is attributed per real payment method
 export const getDailySalesReport = async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
-    
+
     const start = startDate ? new Date(startDate) : new Date(new Date().setHours(0, 0, 0, 0));
     const end = endDate ? new Date(endDate) : new Date(new Date().setHours(23, 59, 59, 999));
 
-    const sales = await Sale.find({
-      saleDate: { $gte: start, $lte: end }
-    }).populate('items.product').populate('customer').populate('cashier', 'name');
+    const [sales, payments] = await Promise.all([
+      Sale.find({ saleDate: { $gte: start, $lte: end } })
+        .populate('items.product')
+        .populate('customer')
+        .populate('cashier', 'name'),
+      PaymentTransaction.find({ paymentDate: { $gte: start, $lte: end } }),
+    ]);
 
-    // Sum up revenue and profit from sale records
-    const totalRevenue = sales.reduce((sum, sale) => sum + sale.total, 0);
-    const grossProfit = sales.reduce((sum, sale) => sum + (sale.grossProfit || 0), 0);
-    const totalCost = sales.reduce((sum, sale) => sum + (sale.totalCost || 0), 0);
+    const breakdown = calculateSalesBreakdown(sales, payments);
 
     const paymentBreakdown = {
-      cash: sales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.amountPaid, 0),
-      mpesa: sales.filter(s => s.paymentMethod.includes('mpesa')).reduce((sum, s) => sum + s.amountPaid, 0),
-      credit: sales.filter(s => s.paymentMethod === 'credit').reduce((sum, s) => sum + s.total, 0)
+      cash: breakdown.totalCash,
+      mpesa: breakdown.totalDigital,
+      credit: breakdown.creditIssued,
+      byMethod: breakdown.byMethod,
+      creditPaymentsCollected: breakdown.creditPaymentsCollected,
     };
 
     res.json({
@@ -101,11 +106,19 @@ export const getDailySalesReport = async (req, res) => {
       data: {
         period: { start, end },
         summary: {
-          totalSales: sales.length,
-          totalRevenue,
-          totalCost,
-          grossProfit,
-          profitMargin: totalRevenue > 0 ? ((grossProfit / totalRevenue) * 100).toFixed(2) + '%' : '0%'
+          totalSales: breakdown.salesCount,
+          // Turnover: value of everything sold, credit included
+          grossSalesValue: breakdown.grossSalesValue,
+          // Money actually received in the period (sales + debt repayments)
+          totalCollected: breakdown.totalCollected,
+          // Kept for backwards compatibility with existing UI
+          totalRevenue: breakdown.grossSalesValue,
+          totalCost: breakdown.totalCost,
+          grossProfit: breakdown.grossProfit,
+          creditIssued: breakdown.creditIssued,
+          profitMargin: breakdown.grossSalesValue > 0
+            ? ((breakdown.grossProfit / breakdown.grossSalesValue) * 100).toFixed(2) + '%'
+            : '0%'
         },
         paymentBreakdown,
         sales
@@ -128,9 +141,12 @@ export const getBalanceSheet = async (req, res) => {
     const accountsReceivable = customers.reduce((sum, c) => sum + c.currentCredit, 0);
 
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const sales = await Sale.find({ saleDate: { $gte: startOfMonth } });
-    const cashInHand = sales.filter(s => s.paymentMethod === 'cash')
-      .reduce((sum, s) => sum + s.amountPaid, 0);
+    const [monthSales, monthPayments] = await Promise.all([
+      Sale.find({ saleDate: { $gte: startOfMonth } }),
+      PaymentTransaction.find({ paymentDate: { $gte: startOfMonth } }),
+    ]);
+    const monthBreakdown = calculateSalesBreakdown(monthSales, monthPayments);
+    const cashInHand = monthBreakdown.totalCash;
 
     const totalAssets = inventory + accountsReceivable + cashInHand;
 
@@ -228,15 +244,14 @@ export const getCashFlowReport = async (req, res) => {
     const start = startDate ? new Date(startDate) : new Date(new Date().setDate(new Date().getDate() - 30));
     const end = endDate ? new Date(endDate) : new Date();
 
-    const sales = await Sale.find({
-      saleDate: { $gte: start, $lte: end }
-    });
+    const [sales, payments] = await Promise.all([
+      Sale.find({ saleDate: { $gte: start, $lte: end } }),
+      PaymentTransaction.find({ paymentDate: { $gte: start, $lte: end } }),
+    ]);
 
-    const cashIn = sales.filter(s => s.paymentMethod === 'cash')
-      .reduce((sum, s) => sum + s.amountPaid, 0);
-    
-    const mpesaIn = sales.filter(s => s.paymentMethod.includes('mpesa'))
-      .reduce((sum, s) => sum + s.amountPaid, 0);
+    const breakdown = calculateSalesBreakdown(sales, payments);
+    const cashIn = breakdown.totalCash;
+    const mpesaIn = breakdown.totalDigital;
 
     const restockMovements = await StockMovement.find({
       movementType: 'restock',
@@ -255,7 +270,9 @@ export const getCashFlowReport = async (req, res) => {
         period: { start, end },
         cashIn,
         mpesaIn,
-        totalInflow: cashIn + mpesaIn,
+        creditPaymentsCollected: breakdown.creditPaymentsCollected,
+        creditIssued: breakdown.creditIssued,
+        totalInflow: breakdown.totalCollected,
         cashOut,
         netCashFlow
       }

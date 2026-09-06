@@ -118,11 +118,20 @@ const saleSchema = new mongoose.Schema({
     default: 0,
     min: 0
   },
+  // Amount that was paid at the moment of sale (deposit). Later debt
+  // repayments increase `amountPaid` but never this field, so statements can
+  // show the correct entry on the sale date.
+  amountPaidAtSale: {
+    type: Number,
+    default: 0,
+    min: 0
+  },
   amountDue: {
     type: Number,
     default: 0,
     min: 0
   },
+
   customer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Customer'

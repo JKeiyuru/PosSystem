@@ -22,9 +22,11 @@ import productionFormulaRoutes from './routes/productionFormula.routes.js';
 import vehicleRoutes from './routes/vehicle.routes.js';
 import receivingInvoiceRoutes from './routes/receivingInvoice.routes.js'; 
 import analyticsRoutes from './routes/analytics.routes.js'; // NEW
+import backupRoutes from './routes/backup.routes.js'; // NEW
 
 // Utils
 import { sendDailyReport } from './utils/emailService.js';
+import { runScheduledBackupIfDue } from './utils/backupService.js';
 
 dotenv.config();
 
@@ -51,6 +53,7 @@ app.use('/api/production-formulas', productionFormulaRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/receiving-invoices', receivingInvoiceRoutes); 
 app.use('/api/analytics', analyticsRoutes); // NEW
+app.use('/api/backup', backupRoutes); // NEW
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -87,6 +90,17 @@ mongoose.connect(process.env.MONGODB_URI)
         console.error('❌ Error sending daily report:', error);
       }
     });
+
+    // Check every minute whether the daily local backup is due.
+    // This also covers the case where the computer was off at the set time.
+    cron.schedule('* * * * *', async () => {
+      await runScheduledBackupIfDue();
+    });
+
+    // Run a catch-up check shortly after start-up too
+    setTimeout(() => {
+      runScheduledBackupIfDue().catch(() => {});
+    }, 15000);
 
   })
   .catch((err) => {

@@ -1,8 +1,11 @@
-// server/controllers/dailyReport.controller.js - COMPLETELY FIXED
+// server/controllers/dailyReport.controller.js
+// Uses the shared calculation utility so the close-of-business figures match
+// the dashboard exactly.
 
 import DailyReport from '../models/DailyReport.model.js';
 import Sale from '../models/Sale.model.js';
 import PaymentTransaction from '../models/PaymentTransaction.model.js';
+import { calculateSalesBreakdown, getDayRange } from '../utils/salesCalculations.js';
 
 export const createDailyReport = async (req, res) => {
   try {
@@ -15,84 +18,38 @@ export const createDailyReport = async (req, res) => {
       notes 
     } = req.body;
 
-    const date = new Date(reportDate);
-    const startOfDay = new Date(date.setHours(0, 0, 0, 0));
-    const endOfDay = new Date(date.setHours(23, 59, 59, 999));
+    const { start: startOfDay, end: endOfDay } = getDayRange(new Date(reportDate));
 
-    // Get all sales for the day
-    const sales = await Sale.find({
-      saleDate: {
-        $gte: startOfDay,
-        $lte: endOfDay
-      }
+    const [sales, payments] = await Promise.all([
+      Sale.find({ saleDate: { $gte: startOfDay, $lte: endOfDay } }),
+      PaymentTransaction.find({ paymentDate: { $gte: startOfDay, $lte: endOfDay } }),
+    ]);
+
+    const breakdown = calculateSalesBreakdown(sales, payments);
+
+    // TOTAL CASH = cash taken on sales + cash from debt repayments
+    const totalCashReceived = breakdown.totalCash;
+    const totalMpesa = breakdown.totalDigital;
+    const creditSales = breakdown.creditIssued;
+    const totalCreditPayments = breakdown.creditPaymentsCollected;
+
+    // Total revenue = all money actually received today
+    const totalRevenue = breakdown.totalCollected;
+
+    // EXPECTED CASH = Opening Cash + Cash Received - Expenses
+    const expenses = parseFloat(totalExpenses) || 0;
+    const expectedCash = (parseFloat(openingCash) || 0) + totalCashReceived - expenses;
+    const variance = (parseFloat(actualCash) || 0) - expectedCash;
+
+    console.log('Daily report:', {
+      cashReceived: totalCashReceived,
+      digitalReceived: totalMpesa,
+      creditIssued: creditSales,
+      creditCollected: totalCreditPayments,
+      totalRevenue,
+      expectedCash,
+      variance,
     });
-
-    // Get all payment transactions (credit payments) for the day
-    const payments = await PaymentTransaction.find({
-      createdAt: {
-        $gte: startOfDay,
-        $lte: endOfDay
-      }
-    });
-
-    console.log(`Found ${sales.length} sales and ${payments.length} payment transactions for the day`);
-
-    // CRITICAL FIX: Only count CASH and M-PESA sales, NOT credit sales
-    
-    // 1. Cash from direct CASH sales
-    const cashSales = sales
-      .filter(s => s.paymentMethod === 'cash')
-      .reduce((sum, s) => sum + s.amountPaid, 0);
-    
-    // 2. Cash from CREDIT PAYMENTS made today
-    const cashFromCreditPayments = payments
-      .filter(p => p.paymentMethod === 'cash')
-      .reduce((sum, p) => sum + p.amount, 0);
-
-    // TOTAL CASH = Cash sales + Cash from credit payments
-    const totalCashReceived = cashSales + cashFromCreditPayments;
-
-    console.log('Cash Calculation:');
-    console.log('  Cash Sales:', cashSales);
-    console.log('  Cash from Credit Payments:', cashFromCreditPayments);
-    console.log('  Total Cash Received:', totalCashReceived);
-
-    // Calculate M-Pesa sales (all M-Pesa payment methods combined)
-    const mpesaSales = sales
-      .filter(s => s.paymentMethod.includes('mpesa') || s.paymentMethod.includes('gdc'))
-      .reduce((sum, s) => sum + s.amountPaid, 0);
-    
-    // M-Pesa from credit payments
-    const mpesaFromCreditPayments = payments
-      .filter(p => p.paymentMethod.includes('mpesa') || p.paymentMethod.includes('gdc'))
-      .reduce((sum, p) => sum + p.amount, 0);
-
-    const totalMpesa = mpesaSales + mpesaFromCreditPayments;
-
-    // Credit sales (amount given on credit today - NOT counted as revenue)
-    const creditSales = sales
-      .filter(s => s.paymentMethod === 'credit')
-      .reduce((sum, s) => sum + s.total, 0);
-
-    // Total credit payments collected today
-    const totalCreditPayments = payments.reduce((sum, p) => sum + p.amount, 0);
-
-    // Total revenue = Cash + M-Pesa + Credit Payments (NOT including new credit sales)
-    const totalRevenue = totalCashReceived + totalMpesa + mpesaFromCreditPayments;
-
-    // EXPECTED CASH = Opening Cash + Total Cash Received - Expenses
-    const expectedCash = parseFloat(openingCash) + totalCashReceived - parseFloat(totalExpenses);
-    
-    // VARIANCE = Actual Cash - Expected Cash
-    const variance = parseFloat(actualCash) - expectedCash;
-
-    console.log('Expected Cash Calculation:');
-    console.log(`  Opening: ${openingCash}`);
-    console.log(`  + Cash Received: ${totalCashReceived}`);
-    console.log(`  - Expenses: ${totalExpenses}`);
-    console.log(`  = Expected Cash: ${expectedCash}`);
-    console.log(`  Actual: ${actualCash}`);
-    console.log(`  Variance: ${variance}`);
 
     // Check if report already exists
     const existingReport = await DailyReport.findOne({
@@ -112,14 +69,14 @@ export const createDailyReport = async (req, res) => {
     // Create the daily report
     const dailyReport = await DailyReport.create({
       reportDate: new Date(reportDate),
-      openingCash: parseFloat(openingCash),
+      openingCash: parseFloat(openingCash) || 0,
       expectedCash,
-      actualCash: parseFloat(actualCash),
+      actualCash: parseFloat(actualCash) || 0,
       variance,
-      totalExpenses: parseFloat(totalExpenses),
+      totalExpenses: expenses,
       expensesNotes: expensesNotes || '',
       totalSales: sales.length,
-      totalRevenue, // Actual revenue (cash + mpesa + credit payments)
+      totalRevenue, // Actual money received (cash + digital + debt repayments)
       cashSales: totalCashReceived, // Total cash (sales + credit payments)
       mpesaSales: totalMpesa,
       creditSales, // Credit given today (NOT revenue)
@@ -129,6 +86,7 @@ export const createDailyReport = async (req, res) => {
       closedByName: req.user.name,
       notes: notes || ''
     });
+
 
     res.status(201).json({
       success: true,

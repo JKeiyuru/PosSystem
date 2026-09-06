@@ -6030,42 +6030,106 @@ const products = [
 }
 ];
 
-
-
-// Add this to the bottom of your existing server/utils/seeder.js file:
-
-// Seeding execution code (only runs when file is executed directly)
-if (import.meta.url === `file://${process.argv[1]}`) {
-  import('mongoose').then(async (mongooseModule) => {
-    const mongoose = mongooseModule.default;
-    import('../models/Product.model.js').then(async (ProductModule) => {
-      const Product = ProductModule.default;
-      import('dotenv').then(async (dotenvModule) => {
-        const dotenv = dotenvModule.default;
-        
-        dotenv.config();
-        
-        try {
-          console.log('🚀 Starting product seeder...');
-          await mongoose.connect(process.env.MONGODB_URI);
-          console.log('✅ Database connected');
-          
-          await Product.deleteMany({});
-          console.log('✅ Cleared existing products');
-          
-          const result = await Product.insertMany(products);
-          console.log(`✅ Successfully seeded ${result.length} products`);
-          
-          await mongoose.connection.close();
-          console.log('✅ Seeding completed!');
-          process.exit(0);
-        } catch (error) {
-          console.error('❌ Seeding failed:', error);
-          process.exit(1);
-        }
-      });
-    });
-  });
-}
-
 export default products;
+export { products };
+
+// ---------------------------------------------------------------------------
+// Seeding execution (runs with: npm run seed)
+//
+// Safe / idempotent:
+//  - Products are UPSERTED by name (existing stock quantities are preserved).
+//  - The first admin user is created if missing.
+// ---------------------------------------------------------------------------
+const runSeeder = async () => {
+  const [{ default: mongoose }, { default: dotenv }] = await Promise.all([
+    import('mongoose'),
+    import('dotenv'),
+  ]);
+
+  dotenv.config();
+
+  const { default: Product } = await import('../models/Product.model.js');
+  const { default: User } = await import('../models/User.model.js');
+
+  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
+  if (!uri) {
+    console.error('❌ MONGODB_URI is not set. Add it to your .env file.');
+    process.exit(1);
+  }
+
+  try {
+    console.log('🚀 Starting seeder...');
+    await mongoose.connect(uri);
+    console.log('✅ Database connected');
+
+    // ----- 1. Products (upsert, never delete) -----
+    let created = 0;
+    let updated = 0;
+
+    for (const product of products) {
+      const existing = await Product.findOne({ name: product.name });
+
+      if (existing) {
+        // Preserve live stock levels; only refresh catalogue information.
+        existing.category = product.category;
+        existing.description = product.description ?? existing.description;
+        existing.baseUnit = product.baseUnit;
+        existing.baseUnitSize = product.baseUnitSize;
+        existing.buyingPrice = product.buyingPrice;
+        existing.sellingPrice = product.sellingPrice;
+        existing.reorderLevel = product.reorderLevel;
+        existing.supplier = product.supplier;
+        existing.hasMultipleUnits = product.hasMultipleUnits;
+        existing.subUnits = product.subUnits;
+        existing.isActive = true;
+        await existing.save();
+        updated += 1;
+      } else {
+        await Product.create(product);
+        created += 1;
+      }
+    }
+
+    console.log(`✅ Products: ${created} created, ${updated} updated (none deleted)`);
+
+    // ----- 2. First admin user -----
+    const adminEmail = (process.env.SEED_ADMIN_EMAIL || 'admin@bekhal.com').toLowerCase();
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Bekhal@101';
+    const adminName = process.env.SEED_ADMIN_NAME || 'Administrator';
+
+    const existingAdmin = await User.findOne({ email: adminEmail });
+
+    if (existingAdmin) {
+      existingAdmin.role = 'admin';
+      existingAdmin.isActive = true;
+      if (process.env.SEED_RESET_ADMIN_PASSWORD === 'true') {
+        existingAdmin.password = adminPassword; // re-hashed by the pre-save hook
+        console.log('🔐 Admin password reset');
+      }
+      await existingAdmin.save();
+      console.log(`✅ Admin user already exists: ${adminEmail}`);
+    } else {
+      await User.create({
+        username: process.env.SEED_ADMIN_USERNAME || adminEmail.split('@')[0],
+        name: adminName,
+        email: adminEmail,
+        password: adminPassword, // hashed by the User model pre-save hook
+        role: 'admin',
+        isActive: true,
+      });
+      console.log(`✅ Admin user created: ${adminEmail}`);
+    }
+
+    await mongoose.connection.close();
+    console.log('🎉 Seeding completed!');
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Seeding failed:', error);
+    try { await mongoose.connection.close(); } catch (_) { /* ignore */ }
+    process.exit(1);
+  }
+};
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  runSeeder();
+}

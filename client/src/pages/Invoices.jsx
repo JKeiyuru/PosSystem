@@ -679,9 +679,9 @@ export default function Invoices() {
               ) : dailySummary ? (
                 <>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="p-4 bg-blue-50 rounded-lg border border-blue-100">
+                    <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-100">
                       <p className="text-sm text-gray-600">Total Invoices</p>
-                      <p className="text-2xl font-bold text-blue-600">{dailySummary.summary?.totalInvoices || 0}</p>
+                      <p className="text-2xl font-bold text-emerald-600">{dailySummary.summary?.totalInvoices || 0}</p>
                     </div>
                     <div className="p-4 bg-green-50 rounded-lg border border-green-100">
                       <p className="text-sm text-gray-600">Total Amount</p>
@@ -715,9 +715,9 @@ export default function Invoices() {
                         {formatCurrency(dailySummary.summary?.totalVariance || 0)}
                       </p>
                     </div>
-                    <div className="p-4 bg-indigo-50 rounded-lg border border-indigo-100">
+                    <div className="p-4 bg-emerald-50 rounded-lg border border-emerald-100">
                       <p className="text-sm text-gray-600">Unique Suppliers</p>
-                      <p className="text-xl font-bold text-indigo-600">{dailySummary.summary?.uniqueSuppliers || 0}</p>
+                      <p className="text-xl font-bold text-emerald-600">{dailySummary.summary?.uniqueSuppliers || 0}</p>
                     </div>
                     <div className="p-4 bg-pink-50 rounded-lg border border-pink-100">
                       <p className="text-sm text-gray-600">Total Items</p>
@@ -1011,10 +1011,10 @@ export default function Invoices() {
               />
               {currentItem.productId && currentItem.buyingPrice && products.find(p => p._id === currentItem.productId) && (
                 Math.abs(parseFloat(currentItem.buyingPrice) - (products.find(p => p._id === currentItem.productId)?.buyingPrice || 0)) > 0.01 && (
-                  <div className="text-sm p-2 bg-blue-50 rounded border border-blue-200">
+                  <div className="text-sm p-2 bg-emerald-50 rounded border border-emerald-200">
                     <div className="flex items-center gap-2">
-                      <AlertCircle className="h-4 w-4 text-blue-600" />
-                      <span className="text-blue-800">
+                      <AlertCircle className="h-4 w-4 text-emerald-600" />
+                      <span className="text-emerald-800">
                         ⚠ Price will be updated from {formatCurrency(products.find(p => p._id === currentItem.productId)?.buyingPrice)} to {formatCurrency(parseFloat(currentItem.buyingPrice))}
                       </span>
                     </div>

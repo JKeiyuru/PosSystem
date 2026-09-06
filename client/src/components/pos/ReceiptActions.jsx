@@ -365,7 +365,7 @@ export default function ReceiptActions({ receiptRef, sale, businessInfo, onClose
                 </div>
               )}
               {(sale?.transport || 0) > 0 && (
-                <div className="flex justify-between text-blue-600">
+                <div className="flex justify-between text-emerald-600">
                   <span>Transport:</span>
                   <span>+{formatCurrency(sale.transport)}</span>
                 </div>

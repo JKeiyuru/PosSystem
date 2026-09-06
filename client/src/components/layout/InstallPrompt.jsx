@@ -46,11 +46,11 @@ export default function InstallPrompt() {
 
   return (
     <div className="fixed bottom-4 right-4 z-50 max-w-md">
-      <Alert className="shadow-lg border-2 border-blue-500">
+      <Alert className="shadow-lg border-2 border-emerald-500">
         <div className="flex items-start justify-between">
           <div className="flex-1">
             <div className="flex items-center space-x-2 mb-2">
-              <Download className="h-5 w-5 text-blue-600" />
+              <Download className="h-5 w-5 text-emerald-600" />
               <h3 className="font-semibold">Install Bekhal POS</h3>
             </div>
             <AlertDescription>
