@@ -43,6 +43,7 @@ export default function Dashboard() {
   const [stats, setStats] = useState({
     todaySales: 0,
     todayRevenue: 0,          // ACTUAL money received today (cash + mpesa + credit payments)
+    todayTurnover: 0,         // Value of everything sold today (credit included)
     todayCashSales: 0,        // Cash sales only
     todayMpesaSales: 0,       // M-Pesa sales only
     todayCreditPayments: 0,   // Credit collections today (payments towards old debts)
@@ -76,16 +77,14 @@ export default function Dashboard() {
     try {
       setLoading(true);
       
-      const [dailySalesRes, lowStockRes, stockValueRes, creditPaymentsRes] = await Promise.all([
+      const [dailySalesRes, lowStockRes, stockValueRes] = await Promise.all([
         saleService.getDailySales(),
         productService.getLowStock(),
         stockService.getStockValue(),
-        api.get('/debts/payments/today') // Get today's credit payments separately
       ]);
 
       const todaySales = dailySalesRes.data.summary;
       const salesList = dailySalesRes.data.sales;
-      const todayCreditPayments = creditPaymentsRes.data.data?.totalPayments || 0;
 
       let monthlyProfitData = [];
       let topProductsData = [];
@@ -112,19 +111,24 @@ export default function Dashboard() {
         console.warn('Could not fetch monthly profit data:', error);
       }
 
-      // CRITICAL FIX: Calculate revenue CORRECTLY
-      // Revenue = Cash Sales + M-Pesa Sales + Credit Payments collected today
-      // Credit Sales Today are NOT revenue
-      const todayCashSales = todaySales.cashSales || 0;
-      const todayMpesaSales = todaySales.totalMpesa || 0;
-      const todayCreditGiven = todaySales.totalCredit || 0;
-      
-      // Today's actual revenue (money received)
-      const actualRevenueToday = todayCashSales + todayMpesaSales + todayCreditPayments;
+      // SINGLE SOURCE OF TRUTH: every figure below comes from the same
+      // server breakdown that powers the "Today's Sales" list, so the
+      // cards can never disagree with the sales detail.
+      const todayCashSales = todaySales.cashSales || 0;          // cash received on today's sales
+      const todayMpesaSales = todaySales.totalMpesa || 0;        // digital received on today's sales
+      const todayCreditPayments = todaySales.creditPaymentsToday || 0; // old debts repaid today
+      const todayCreditGiven = todaySales.creditIssued ?? todaySales.totalCredit ?? 0;
+      const todayTurnover = todaySales.grossSalesValue || 0;     // value of everything sold today
+
+      // Money actually received today.
+      const actualRevenueToday =
+        todaySales.totalCollected ??
+        (todayCashSales + todayMpesaSales + todayCreditPayments);
 
       setStats({
         todaySales: todaySales.salesCount || 0,
         todayRevenue: actualRevenueToday,
+        todayTurnover: todayTurnover,
         todayCashSales: todayCashSales,
         todayMpesaSales: todayMpesaSales,
         todayCreditPayments: todayCreditPayments,
@@ -334,7 +338,9 @@ export default function Dashboard() {
               </ul>
             </div>
             <div>
-              <strong>Credit Given Today: {formatCurrency(stats.todayCreditGiven)}</strong>
+              <strong>Total Sold Today (turnover): {formatCurrency(stats.todayTurnover)}</strong>
+              <p className="text-xs mt-1">Value of everything sold today, credit included.</p>
+              <strong className="block mt-2">Credit Given Today: {formatCurrency(stats.todayCreditGiven)}</strong>
               <p className="text-xs mt-1">This is <strong>NOT</strong> revenue yet. It will only become revenue when payments are made.</p>
             </div>
           </div>

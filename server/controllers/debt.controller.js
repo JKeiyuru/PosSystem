@@ -100,7 +100,9 @@ export const getTodayDebtPayments = async (req, res) => {
     const todayPayments = await PaymentTransaction.aggregate([
       {
         $match: {
-          createdAt: {
+          // Use the real payment date so this matches the daily sales
+          // breakdown (which also keys off paymentDate).
+          paymentDate: {
             $gte: today,
             $lt: tomorrow
           }
@@ -116,7 +118,7 @@ export const getTodayDebtPayments = async (req, res) => {
               customer: '$customerName',
               amount: '$amount',
               method: '$paymentMethod',
-              date: '$createdAt'
+              date: '$paymentDate'
             }
           }
         }
