@@ -201,11 +201,28 @@ export const createSale = async (req, res) => {
     }
 
     // Money actually received now (credit lines excluded).
-    const paidAmount = round2(
+    const tenderedAmount = round2(
       paymentLines
         .filter((p) => p.method !== 'credit')
         .reduce((sum, p) => sum + p.amount, 0)
     );
+
+    // Cash tendered above the sale total is CHANGE given back, not revenue.
+    // Never record more than the sale is worth, and trim the excess off the
+    // largest tender line so the per-method breakdown stays honest too.
+    const paidAmount = Math.min(tenderedAmount, total);
+    let overpayment = round2(tenderedAmount - paidAmount);
+    if (overpayment > 0) {
+      paymentLines = [...paymentLines]
+        .sort((a, b) => b.amount - a.amount)
+        .map((line) => {
+          if (line.method === 'credit' || overpayment <= 0) return line;
+          const deduction = Math.min(line.amount, overpayment);
+          overpayment = round2(overpayment - deduction);
+          return { ...line, amount: round2(line.amount - deduction) };
+        })
+        .filter((line) => line.amount > 0);
+    }
 
     // Anything not paid now is credit, whatever the client sent.
     let calculatedAmountDue = round2(total - paidAmount);
@@ -213,6 +230,7 @@ export const createSale = async (req, res) => {
 
     // Keep the credit line consistent with the real outstanding amount.
     paymentLines = paymentLines.filter((p) => p.method !== 'credit');
+
     if (calculatedAmountDue > 0) {
       paymentLines.push({ method: 'credit', amount: calculatedAmountDue });
     }
@@ -334,7 +352,18 @@ export const updateSalePayment = async (req, res) => {
       });
     }
 
-    const payment = parseFloat(amountPaid);
+    // Never accept (or record) more than what is still owed on this sale —
+    // anything extra is change handed back, not money the business keeps.
+    const outstanding = Math.max(0, round2(sale.total - sale.amountPaid));
+    const payment = Math.min(round2(amountPaid), outstanding);
+
+    if (payment <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'This sale has already been fully paid'
+      });
+    }
+
     
     // Create payment transaction
     const paymentTransaction = await PaymentTransaction.create([{

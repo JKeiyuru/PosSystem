@@ -47,21 +47,46 @@ export function getSalePaymentLines(sale) {
     .filter((p) => p && p.method && p.method !== 'credit' && num(p.amount) > 0)
     .map((p) => ({ method: p.method, amount: num(p.amount) }));
 
-  if (received.length > 0) return received;
+  if (received.length > 0) return capLinesToSaleTotal(received, sale);
 
   // Legacy / single-method sales.
   const amountPaid = num(sale.amountPaid);
   if (amountPaid <= 0) return [];
 
   if (sale.paymentMethod && sale.paymentMethod !== 'credit') {
-    return [{ method: sale.paymentMethod, amount: amountPaid }];
+    return capLinesToSaleTotal([{ method: sale.paymentMethod, amount: amountPaid }], sale);
   }
 
   // A "credit" sale that still recorded a deposit: the money was received,
   // we just don't know the tender. Attribute it to cash (best available guess)
   // so the day's total is never understated.
-  return [{ method: 'cash', amount: amountPaid }];
+  return capLinesToSaleTotal([{ method: 'cash', amount: amountPaid }], sale);
 }
+
+/**
+ * Cash tendered can exceed the sale total (the customer gets change back).
+ * Change is NOT revenue, so never count more than the sale's own total.
+ * The excess is trimmed off the largest line first.
+ */
+function capLinesToSaleTotal(lines, sale) {
+  const total = round2(sale?.total);
+  if (!(total > 0)) return lines;
+
+  const received = lines.reduce((sum, l) => sum + num(l.amount), 0);
+  let excess = round2(received - total);
+  if (excess <= 0) return lines;
+
+  const ordered = [...lines].sort((a, b) => num(b.amount) - num(a.amount));
+  return ordered
+    .map((line) => {
+      if (excess <= 0) return line;
+      const deduction = Math.min(num(line.amount), excess);
+      excess = round2(excess - deduction);
+      return { ...line, amount: round2(num(line.amount) - deduction) };
+    })
+    .filter((line) => line.amount > 0);
+}
+
 
 /** Amount of a sale that was actually paid at any point (all methods). */
 export const getSaleAmountReceived = (sale) =>

@@ -1,19 +1,19 @@
-// client/src/hooks/useAuth.js - FIXED with automatic redirect on logout
+// client/src/hooks/useAuth.js - reads the stored session synchronously so the
+// app does not flash a "Loading..." screen on every navigation.
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { authService } from '../services/auth.service';
 import { useNavigate } from 'react-router-dom';
 
 export const useAuth = () => {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(() => {
+    try {
+      return authService.getCurrentUser();
+    } catch {
+      return null;
+    }
+  });
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const currentUser = authService.getCurrentUser();
-    setUser(currentUser);
-    setLoading(false);
-  }, []);
 
   const login = async (credentials) => {
     const response = await authService.login(credentials);
@@ -26,15 +26,13 @@ export const useAuth = () => {
     setUser(null);
     // Clear any cached data
     localStorage.clear();
-    // Force navigate to login and reload
     navigate('/login');
-    // Force a full page reload to clear all state
     window.location.reload();
   };
 
   return {
     user,
-    loading,
+    loading: false,
     login,
     logout,
     isAuthenticated: !!user
