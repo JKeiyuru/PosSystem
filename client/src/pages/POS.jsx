@@ -3,7 +3,7 @@
 // - Sale in progress is kept when you leave the page and come back
 // - Product/customer lists are cached, search filters instantly on screen
 
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -44,14 +44,10 @@ const PAYMENT_LABELS = {
 
 /**
  * Editable quantity field used inside the cart stepper.
- * Keeps its own text state while the user is typing, then commits
- * the parsed value on blur or Enter. This prevents the input from
- * snapping back to the cart value on every keystroke.
  */
 function QuantityInput({ value, unit, onCommit, className }) {
   const [text, setText] = useState(String(value));
 
-  // Keep in sync when the value changes from outside (e.g. +/- buttons)
   useEffect(() => {
     setText(String(value));
   }, [value]);
@@ -59,7 +55,6 @@ function QuantityInput({ value, unit, onCommit, className }) {
   const commit = () => {
     const parsed = parseFloat(text);
     if (Number.isNaN(parsed)) {
-      // invalid -> restore current value
       setText(String(value));
       return;
     }
@@ -88,6 +83,39 @@ function QuantityInput({ value, unit, onCommit, className }) {
         className
       )}
     />
+  );
+}
+
+/**
+ * Scrollable cart line-items container that preserves its scroll
+ * position across re-renders caused by cart mutations (e.g. +/-).
+ * Without this, React sometimes remounts the list on state updates
+ * via usePersistedState, resetting scrollTop to 0.
+ */
+function CartScrollArea({ children, className }) {
+  const scrollRef = useRef(null);
+  const savedScroll = useRef(0);
+
+  // Save scroll position right before every render
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Restore the last known scroll position synchronously after DOM updates
+    el.scrollTop = savedScroll.current;
+  });
+
+  const handleScroll = (e) => {
+    savedScroll.current = e.currentTarget.scrollTop;
+  };
+
+  return (
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className={className}
+    >
+      {children}
+    </div>
   );
 }
 
@@ -292,7 +320,6 @@ export default function POS() {
   const total = subtotal - totalDiscount + transportAmount;
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
-  // Money actually received now (credit lines are NOT money received)
   const getTotalPaid = () =>
     splitPayments
       .filter((p) => p.method !== 'credit')
@@ -374,14 +401,12 @@ export default function POS() {
       setShowReceipt(true);
       setShowPaymentDialog(false);
 
-      // Reset the draft sale
       setCart([]);
       setTransport('');
       setSelectedCustomer(null);
       setSplitPayments([{ method: 'cash', amount: '' }]);
       clearPersistedState(CART_KEY);
 
-      // Stock changed - refresh product list in the background
       queryClient.invalidateQueries({ queryKey: ['pos', 'products'] });
     } catch (error) {
       console.error('Error creating sale:', error);
@@ -426,8 +451,8 @@ export default function POS() {
           </div>
         </div>
 
-        {/* Scrollable line items */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+        {/* Scrollable line items — wrapped in CartScrollArea to preserve scroll position */}
+        <CartScrollArea className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
           {cart.length === 0 ? (
             <div className="flex h-full min-h-[260px] flex-col items-center justify-center px-6 text-center">
               <div className="grid h-16 w-16 place-items-center rounded-2xl border border-dashed border-border bg-muted/40">
@@ -480,7 +505,6 @@ export default function POS() {
                             <Minus className="h-3.5 w-3.5" />
                           </button>
 
-                          {/* Editable quantity — type it directly, or use +/- */}
                           <QuantityInput
                             value={item.quantity}
                             unit={item.unit}
@@ -526,7 +550,7 @@ export default function POS() {
               ))}
             </div>
           )}
-        </div>
+        </CartScrollArea>
 
         {/* Sticky checkout area */}
         <div className="shrink-0 border-t border-border bg-muted/30 p-3">
