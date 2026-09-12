@@ -42,6 +42,55 @@ const PAYMENT_LABELS = {
   credit: 'Credit',
 };
 
+/**
+ * Editable quantity field used inside the cart stepper.
+ * Keeps its own text state while the user is typing, then commits
+ * the parsed value on blur or Enter. This prevents the input from
+ * snapping back to the cart value on every keystroke.
+ */
+function QuantityInput({ value, unit, onCommit, className }) {
+  const [text, setText] = useState(String(value));
+
+  // Keep in sync when the value changes from outside (e.g. +/- buttons)
+  useEffect(() => {
+    setText(String(value));
+  }, [value]);
+
+  const commit = () => {
+    const parsed = parseFloat(text);
+    if (Number.isNaN(parsed)) {
+      // invalid -> restore current value
+      setText(String(value));
+      return;
+    }
+    onCommit(parsed);
+  };
+
+  return (
+    <input
+      type="number"
+      inputMode="decimal"
+      min="0"
+      step="0.01"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          e.currentTarget.blur();
+        }
+      }}
+      onFocus={(e) => e.target.select()}
+      aria-label={`Quantity in ${unit}`}
+      className={cn(
+        'h-8 w-[68px] border-x border-border bg-background px-1 text-center text-xs font-bold tabular-nums outline-none focus:bg-primary/5 focus:ring-1 focus:ring-inset focus:ring-primary',
+        className
+      )}
+    />
+  );
+}
+
 export default function POS() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -391,9 +440,9 @@ export default function POS() {
             </div>
           ) : (
             <div className="space-y-2.5">
-              {cart.map((item, index) => (
+              {cart.map((item) => (
                 <div
-                  key={`${item.product}-${item.unit}-${index}`}
+                  key={`${item.product}::${item.unit}`}
                   className="group rounded-xl border border-border/80 bg-card p-3 transition-colors hover:border-primary/30"
                 >
                   <div className="flex items-start gap-3">
@@ -430,9 +479,14 @@ export default function POS() {
                           >
                             <Minus className="h-3.5 w-3.5" />
                           </button>
-                          <span className="min-w-[58px] border-x border-border px-1 text-center text-xs font-bold tabular-nums">
-                            {item.quantity} {item.unit}
-                          </span>
+
+                          {/* Editable quantity — type it directly, or use +/- */}
+                          <QuantityInput
+                            value={item.quantity}
+                            unit={item.unit}
+                            onCommit={(qty) => updateQuantity(item.product, item.unit, qty)}
+                          />
+
                           <button
                             type="button"
                             className="grid h-8 w-8 place-items-center rounded-r-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
