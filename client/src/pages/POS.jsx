@@ -3,7 +3,7 @@
 // - Sale in progress is kept when you leave the page and come back
 // - Product/customer lists are cached, search filters instantly on screen
 
-import { useState, useEffect, useMemo, useRef, useLayoutEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '../components/
 import { Alert, AlertDescription } from '../components/ui/alert';
 import {
   Search, Trash2, Plus, Minus, Package, Tag, AlertCircle, AlertTriangle,
-  ShoppingCart, X, Truck, User, CheckCircle2, Layers, RotateCcw, Barcode, ChevronRight, Wallet, CircleDollarSign, ReceiptText, Sparkles, PackageCheck, Clock3
+  ShoppingCart, X, Truck, User, CheckCircle2, Layers, RotateCcw
 } from 'lucide-react';
 import { productService } from '../services/product.service';
 import { customerService } from '../services/customer.service';
@@ -41,83 +41,6 @@ const PAYMENT_LABELS = {
   mpesa_martin: 'M-Pesa (Martin)',
   credit: 'Credit',
 };
-
-/**
- * Editable quantity field used inside the cart stepper.
- */
-function QuantityInput({ value, unit, onCommit, className }) {
-  const [text, setText] = useState(String(value));
-
-  useEffect(() => {
-    setText(String(value));
-  }, [value]);
-
-  const commit = () => {
-    const parsed = parseFloat(text);
-    if (Number.isNaN(parsed)) {
-      setText(String(value));
-      return;
-    }
-    onCommit(parsed);
-  };
-
-  return (
-    <input
-      type="number"
-      inputMode="decimal"
-      min="0"
-      step="0.01"
-      value={text}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          e.preventDefault();
-          e.currentTarget.blur();
-        }
-      }}
-      onFocus={(e) => e.target.select()}
-      aria-label={`Quantity in ${unit}`}
-      className={cn(
-        'h-8 w-[68px] border-x border-border bg-background px-1 text-center text-xs font-bold tabular-nums outline-none focus:bg-primary/5 focus:ring-1 focus:ring-inset focus:ring-primary',
-        className
-      )}
-    />
-  );
-}
-
-/**
- * Scrollable cart line-items container that preserves its scroll
- * position across re-renders caused by cart mutations (e.g. +/-).
- * Without this, React sometimes remounts the list on state updates
- * via usePersistedState, resetting scrollTop to 0.
- */
-function CartScrollArea({ children, className }) {
-  const scrollRef = useRef(null);
-  const savedScroll = useRef(0);
-
-  // Save scroll position right before every render
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    // Restore the last known scroll position synchronously after DOM updates
-    el.scrollTop = savedScroll.current;
-  });
-
-  const handleScroll = (e) => {
-    savedScroll.current = e.currentTarget.scrollTop;
-  };
-
-  return (
-    <div
-      ref={scrollRef}
-      onScroll={handleScroll}
-      className={className}
-    >
-      {children}
-    </div>
-  );
-}
 
 export default function POS() {
   const { user } = useAuth();
@@ -195,14 +118,6 @@ export default function POS() {
       );
     });
   }, [products, searchQuery, activeCategory]);
-
-  const cartQuantityByProduct = useMemo(() => {
-    const map = new Map();
-    cart.forEach((item) => {
-      map.set(item.product, (map.get(item.product) || 0) + Number(item.quantity || 0));
-    });
-    return map;
-  }, [cart]);
 
   const selectedCustomerObj = useMemo(
     () => customers.find((c) => c._id === selectedCustomer) || null,
@@ -320,6 +235,7 @@ export default function POS() {
   const total = subtotal - totalDiscount + transportAmount;
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
 
+  // Money actually received now (credit lines are NOT money received)
   const getTotalPaid = () =>
     splitPayments
       .filter((p) => p.method !== 'credit')
@@ -401,12 +317,14 @@ export default function POS() {
       setShowReceipt(true);
       setShowPaymentDialog(false);
 
+      // Reset the draft sale
       setCart([]);
       setTransport('');
       setSelectedCustomer(null);
       setSplitPayments([{ method: 'cash', amount: '' }]);
       clearPersistedState(CART_KEY);
 
+      // Stock changed - refresh product list in the background
       queryClient.invalidateQueries({ queryKey: ['pos', 'products'] });
     } catch (error) {
       console.error('Error creating sale:', error);
@@ -425,365 +343,256 @@ export default function POS() {
     return { text: `${Number(product.quantity).toFixed(2)} ${product.baseUnit}`, tone: 'ok' };
   };
 
-  const CartPanel = ({ mobile = false }) => (
-    <div className={cn("flex min-h-0 flex-1 flex-col", mobile && "min-h-0")}>
-      <div className="flex min-h-0 flex-1 flex-col">
-        {/* Cart toolbar */}
-        <div className="shrink-0 border-b border-border/70 bg-background px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                Current sale
-              </p>
-              <p className="mt-0.5 truncate text-sm font-semibold">
-                {itemCount} {itemCount === 1 ? "unit" : "units"} · {cart.length} {cart.length === 1 ? "line" : "lines"}
-              </p>
-            </div>
-            {cart.length > 0 && (
-              <button
-                type="button"
-                onClick={clearSale}
-                className="shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-              >
-                Clear sale
-              </button>
-            )}
+  const CartPanel = () => (
+    <div className="flex h-full flex-col">
+      {/* Items */}
+      <div className="flex-1 space-y-3 overflow-y-auto p-4">
+        {cart.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-center">
+            <ShoppingCart className="h-10 w-10 text-muted-foreground/40" />
+            <p className="text-sm font-medium text-muted-foreground">No items yet</p>
+            <p className="text-xs text-muted-foreground">Tap a product to add it to the sale</p>
           </div>
-        </div>
-
-        {/* Scrollable line items — wrapped in CartScrollArea to preserve scroll position */}
-        <CartScrollArea className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
-          {cart.length === 0 ? (
-            <div className="flex h-full min-h-[260px] flex-col items-center justify-center px-6 text-center">
-              <div className="grid h-16 w-16 place-items-center rounded-2xl border border-dashed border-border bg-muted/40">
-                <ShoppingCart className="h-7 w-7 text-muted-foreground/50" />
-              </div>
-              <p className="mt-4 text-sm font-bold">Your sale is empty</p>
-              <p className="mt-1 max-w-[240px] text-xs leading-5 text-muted-foreground">
-                Select a product from the catalogue to start building the customer&apos;s order.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {cart.map((item) => (
-                <div
-                  key={`${item.product}::${item.unit}`}
-                  className="group rounded-xl border border-border/80 bg-card p-3 transition-colors hover:border-primary/30"
-                >
-                  <div className="flex items-start gap-3">
-                    <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground">
-                      <Package className="h-4 w-4" />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="line-clamp-2 text-sm font-semibold leading-5">{item.name}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">
-                            {formatCurrency(item.price)} / {item.unit}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => removeFromCart(item.product, item.unit)}
-                          className="shrink-0 rounded-md p-1 text-muted-foreground opacity-70 transition hover:bg-destructive/10 hover:text-destructive hover:opacity-100"
-                          aria-label={`Remove ${item.name}`}
-                          title="Remove item"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-
-                      <div className="mt-3 flex items-center justify-between gap-3">
-                        <div className="flex items-center rounded-lg border border-border bg-background shadow-sm">
-                          <button
-                            type="button"
-                            className="grid h-8 w-8 place-items-center rounded-l-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-                            onClick={() => updateQuantity(item.product, item.unit, item.quantity - 1)}
-                            aria-label="Decrease quantity"
-                          >
-                            <Minus className="h-3.5 w-3.5" />
-                          </button>
-
-                          <QuantityInput
-                            value={item.quantity}
-                            unit={item.unit}
-                            onCommit={(qty) => updateQuantity(item.product, item.unit, qty)}
-                          />
-
-                          <button
-                            type="button"
-                            className="grid h-8 w-8 place-items-center rounded-r-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
-                            onClick={() => updateQuantity(item.product, item.unit, item.quantity + 1)}
-                            disabled={item.quantity >= item.maxQuantity}
-                            aria-label="Increase quantity"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                          </button>
-                        </div>
-                        <p className="text-sm font-extrabold tabular-nums">
-                          {formatCurrency(item.price * item.quantity - (item.discount || 0))}
-                        </p>
-                      </div>
-
-                      <div className="mt-2.5 flex items-center gap-2">
-                        <Tag className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                        <Input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          placeholder="Item discount"
-                          className="h-8 bg-background text-xs"
-                          value={item.discount || ""}
-                          onChange={(e) => updateItemDiscount(item.product, item.unit, e.target.value)}
-                          aria-label={`Discount for ${item.name}`}
-                        />
-                        {item.discount > 0 && (
-                          <span className="shrink-0 text-[11px] font-semibold text-primary">
-                            -{formatCurrency(item.discount)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </div>
+        ) : (
+          cart.map((item, index) => (
+            <div
+              key={`${item.product}-${item.unit}-${index}`}
+              className="rounded-xl border border-border bg-card p-3 shadow-sm"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">{item.name}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatCurrency(item.price)} / {item.unit}
+                  </p>
                 </div>
-              ))}
-            </div>
-          )}
-        </CartScrollArea>
+                <button
+                  type="button"
+                  onClick={() => removeFromCart(item.product, item.unit)}
+                  className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  aria-label={`Remove ${item.name}`}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </button>
+              </div>
 
-        {/* Sticky checkout area */}
-        <div className="shrink-0 border-t border-border bg-muted/30 p-3">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <div className="space-y-1">
-              <Label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <User className="h-3 w-3" /> Customer
-              </Label>
-              <Select
-                value={selectedCustomer || "none"}
-                onValueChange={(value) => setSelectedCustomer(value === "none" ? null : value)}
-              >
-                <SelectTrigger className="h-9 bg-background text-xs">
-                  <SelectValue placeholder="Walk-in customer" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">Walk-in customer</SelectItem>
-                  {customers.map((customer) => (
-                    <SelectItem key={customer._id} value={customer._id}>
-                      {customer.name} — {customer.phone}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+              <div className="mt-3 flex items-center justify-between gap-2">
+                <div className="flex items-center rounded-lg border border-border bg-background">
+                  <button
+                    type="button"
+                    className="grid h-8 w-8 place-items-center rounded-l-lg hover:bg-muted"
+                    onClick={() => updateQuantity(item.product, item.unit, item.quantity - 1)}
+                    aria-label="Decrease quantity"
+                  >
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                  <span className="min-w-[68px] px-1 text-center text-sm font-semibold tabular-nums">
+                    {item.quantity} <span className="text-xs font-normal text-muted-foreground">{item.unit}</span>
+                  </span>
+                  <button
+                    type="button"
+                    className="grid h-8 w-8 place-items-center rounded-r-lg hover:bg-muted"
+                    onClick={() => updateQuantity(item.product, item.unit, item.quantity + 1)}
+                    aria-label="Increase quantity"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <span className="text-sm font-bold tabular-nums">
+                  {formatCurrency(item.price * item.quantity - (item.discount || 0))}
+                </span>
+              </div>
 
-            <div className="space-y-1">
-              <Label className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                <Truck className="h-3 w-3" /> Transport
-              </Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                className="h-9 bg-background text-xs"
-                placeholder="0.00"
-                value={transport}
-                onChange={(e) => setTransport(e.target.value)}
-              />
+              <div className="mt-2 flex items-center gap-2 border-t border-border pt-2">
+                <Tag className="h-3.5 w-3.5 shrink-0 text-accent-foreground/60" />
+                <Input
+                  type="number"
+                  placeholder="Discount"
+                  className="h-8 text-xs"
+                  value={item.discount || ''}
+                  onChange={(e) => updateItemDiscount(item.product, item.unit, e.target.value)}
+                />
+              </div>
             </div>
+          ))
+        )}
+      </div>
+
+      {/* Customer / transport / totals */}
+      <div className="space-y-3 border-t border-border bg-muted/40 p-4">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1.5 text-xs">
+              <User className="h-3.5 w-3.5" /> Customer
+            </Label>
+            <Select
+              value={selectedCustomer || 'none'}
+              onValueChange={(value) => setSelectedCustomer(value === 'none' ? null : value)}
+            >
+              <SelectTrigger className="h-9">
+                <SelectValue placeholder="Walk-in customer" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Walk-in customer</SelectItem>
+                {customers.map((customer) => (
+                  <SelectItem key={customer._id} value={customer._id}>
+                    {customer.name} — {customer.phone}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          {selectedCustomerObj?.currentCredit > 0 && (
-            <div className="mt-2 flex items-center justify-between rounded-lg border border-accent/30 bg-accent/10 px-2.5 py-2 text-xs">
-              <span className="font-medium text-muted-foreground">Existing debt</span>
-              <strong className="text-accent-foreground">{formatCurrency(selectedCustomerObj.currentCredit)}</strong>
-            </div>
-          )}
-
-          <div className="mt-3 space-y-1.5">
-            <div className="flex justify-between text-xs text-muted-foreground">
-              <span>Subtotal</span>
-              <span className="tabular-nums">{formatCurrency(subtotal)}</span>
-            </div>
-            {totalDiscount > 0 && (
-              <div className="flex justify-between text-xs text-primary">
-                <span>Discount</span>
-                <span className="tabular-nums">-{formatCurrency(totalDiscount)}</span>
-              </div>
-            )}
-            {transportAmount > 0 && (
-              <div className="flex justify-between text-xs text-muted-foreground">
-                <span>Transport</span>
-                <span className="tabular-nums">+{formatCurrency(transportAmount)}</span>
-              </div>
-            )}
-            <div className="mt-2 flex items-end justify-between border-t border-border/70 pt-2.5">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Total due</p>
-                <p className="text-xs text-muted-foreground">{cart.length} line{cart.length === 1 ? "" : "s"}</p>
-              </div>
-              <span className="text-2xl font-black tracking-tight tabular-nums">{formatCurrency(total)}</span>
-            </div>
+          <div className="space-y-1.5">
+            <Label className="flex items-center gap-1.5 text-xs">
+              <Truck className="h-3.5 w-3.5" /> Transport
+            </Label>
+            <Input
+              type="number"
+              className="h-9"
+              placeholder="0.00"
+              value={transport}
+              onChange={(e) => setTransport(e.target.value)}
+            />
           </div>
-
-          <Button
-            className="mt-3 h-12 w-full rounded-xl text-sm font-bold shadow-sm"
-            onClick={handleInitiateCheckout}
-            disabled={loading || cart.length === 0}
-          >
-            <Wallet className="mr-2 h-4 w-4" />
-            Proceed to payment
-            <ChevronRight className="ml-auto h-4 w-4" />
-          </Button>
         </div>
+
+        {selectedCustomerObj?.currentCredit > 0 && (
+          <p className="rounded-md bg-accent/20 px-2 py-1.5 text-xs text-accent-foreground">
+            Existing debt: <strong>{formatCurrency(selectedCustomerObj.currentCredit)}</strong>
+          </p>
+        )}
+
+        <div className="space-y-1.5 text-sm">
+          <div className="flex justify-between text-muted-foreground">
+            <span>Subtotal</span>
+            <span className="tabular-nums">{formatCurrency(subtotal)}</span>
+          </div>
+          {totalDiscount > 0 && (
+            <div className="flex justify-between text-primary">
+              <span>Discount</span>
+              <span className="tabular-nums">-{formatCurrency(totalDiscount)}</span>
+            </div>
+          )}
+          {transportAmount > 0 && (
+            <div className="flex justify-between text-muted-foreground">
+              <span>Transport</span>
+              <span className="tabular-nums">+{formatCurrency(transportAmount)}</span>
+            </div>
+          )}
+          <div className="flex items-baseline justify-between border-t border-border pt-2">
+            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Total</span>
+            <span className="text-2xl font-extrabold tabular-nums text-primary">{formatCurrency(total)}</span>
+          </div>
+        </div>
+
+        <Button
+          className="h-12 w-full text-base font-semibold"
+          onClick={handleInitiateCheckout}
+          disabled={loading || cart.length === 0}
+        >
+          <CheckCircle2 className="mr-2 h-5 w-5" />
+          Proceed to Payment
+        </Button>
       </div>
     </div>
-  )
+  );
 
   return (
     <>
-      <div className="space-y-4 pb-2">
-        {/* Command header */}
-        <header className="flex flex-col gap-3 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground shadow-sm">
-              <ReceiptText className="h-5 w-5" />
-            </div>
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-xl font-black tracking-tight sm:text-2xl">Point of Sale</h1>
-                {cart.length > 0 && (
-                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary">
-                    Sale in progress
-                  </span>
-                )}
-              </div>
-              <p className="mt-0.5 truncate text-xs text-muted-foreground sm:text-sm">
-                {user?.name ? `Serving as ${user.name}` : "Process customer transactions"}
-              </p>
-            </div>
+      <div className="space-y-4">
+        {/* Header */}
+        <header className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 sm:flex sm:flex-wrap sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="truncate text-2xl font-extrabold tracking-tight sm:text-3xl">Point of Sale</h1>
+            <p className="truncate text-sm text-muted-foreground">
+              {user?.name ? `Serving as ${user.name}` : 'Process customer transactions'}
+            </p>
           </div>
-
           <div className="flex shrink-0 items-center gap-2">
             {cart.length > 0 && (
-              <Button variant="outline" size="sm" className="h-9 rounded-lg" onClick={clearSale}>
-                <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+              <Button variant="outline" size="sm" onClick={clearSale} title="Clear the current sale">
+                <RotateCcw className="mr-1.5 h-4 w-4" />
                 <span className="hidden sm:inline">Clear sale</span>
-                <span className="sm:hidden">Clear</span>
               </Button>
             )}
             <Button
               variant="outline"
               size="sm"
-              className="h-9 rounded-lg border-destructive/30 bg-destructive/5 text-destructive hover:bg-destructive/10"
+              className="border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20"
               onClick={() => setShowCloseBusinessDialog(true)}
             >
-              <Clock3 className="mr-1.5 h-3.5 w-3.5" />
+              <AlertCircle className="mr-1.5 h-4 w-4" />
               <span className="hidden sm:inline">Close of Business</span>
               <span className="sm:hidden">Close</span>
             </Button>
           </div>
         </header>
 
-        <div className="grid min-h-0 grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(360px,0.58fr)] xl:grid-cols-[minmax(0,1fr)_430px]">
-          {/* Product workspace */}
-          <section className="min-w-0">
-            <Card className="flex min-h-[calc(100vh-155px)] flex-col overflow-hidden rounded-2xl border-border/80 shadow-sm">
-              <div className="shrink-0 border-b border-border/70 bg-muted/20 p-4">
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                  <div className="relative min-w-0 flex-1">
-                    <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      ref={searchRef}
-                      placeholder="Search product, category or barcode…"
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      className="h-11 rounded-xl bg-background pl-10 pr-20"
-                    />
-                    <div className="pointer-events-none absolute right-2.5 top-1/2 flex -translate-y-1/2 items-center gap-1.5">
-                      {searchQuery ? (
-                        <button
-                          type="button"
-                          onClick={() => setSearchQuery("")}
-                          className="pointer-events-auto rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-                          aria-label="Clear search"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      ) : (
-                        <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground">
-                          /
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
-                    <span className="hidden sm:inline">Showing</span>
-                    <span className="rounded-full bg-background px-2.5 py-1 font-bold tabular-nums text-foreground ring-1 ring-border">
-                      {filteredProducts.length}
-                    </span>
-                    <span className="hidden sm:inline">products</span>
-                  </div>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
+          {/* Products */}
+          <section className="lg:col-span-3 xl:col-span-3">
+            <Card className="overflow-hidden">
+              <div className="space-y-3 border-b border-border bg-muted/40 p-4">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    ref={searchRef}
+                    placeholder="Search products by name, category or barcode…  (press /)"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="h-11 pl-10 pr-10"
+                  />
+                  {searchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:bg-muted"
+                      aria-label="Clear search"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
 
                 {categories.length > 1 && (
-                  <div className="mt-3 -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+                  <div className="flex gap-2 overflow-x-auto pb-1">
                     {categories.map((cat) => (
                       <button
                         key={cat}
                         type="button"
                         onClick={() => setActiveCategory(cat)}
                         className={cn(
-                          "shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all",
+                          'shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
                           activeCategory === cat
-                            ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                            : "border-transparent bg-background text-muted-foreground hover:border-border hover:bg-muted hover:text-foreground"
+                            ? 'border-primary bg-primary text-primary-foreground'
+                            : 'border-border bg-background text-muted-foreground hover:bg-muted'
                         )}
                       >
-                        {cat === "all" ? "All products" : cat}
+                        {cat === 'all' ? 'All products' : cat}
                       </button>
                     ))}
                   </div>
                 )}
               </div>
 
-              <CardContent className="min-h-0 flex-1 p-4">
+              <CardContent className="p-4">
                 {productsLoading ? (
-                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
-                    {Array.from({ length: 12 }).map((_, i) => (
-                      <div key={i} className="h-36 animate-pulse rounded-xl bg-muted" />
+                  <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                    {Array.from({ length: 9 }).map((_, i) => (
+                      <div key={i} className="h-28 animate-pulse rounded-xl bg-muted" />
                     ))}
                   </div>
                 ) : filteredProducts.length === 0 ? (
-                  <div className="flex min-h-[420px] flex-col items-center justify-center text-center">
-                    <div className="grid h-16 w-16 place-items-center rounded-2xl bg-muted/60">
-                      <Package className="h-7 w-7 text-muted-foreground/50" />
-                    </div>
-                    <p className="mt-4 text-sm font-bold">No products found</p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Try another search term or category.
-                    </p>
-                    {(searchQuery || activeCategory !== "all") && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="mt-4"
-                        onClick={() => {
-                          setSearchQuery("");
-                          setActiveCategory("all");
-                        }}
-                      >
-                        Reset filters
-                      </Button>
-                    )}
+                  <div className="py-16 text-center">
+                    <Package className="mx-auto h-10 w-10 text-muted-foreground/40" />
+                    <p className="mt-2 text-sm font-medium">No products match your search</p>
                   </div>
                 ) : (
-                  <div className="grid max-h-[calc(100vh-275px)] grid-cols-2 gap-3 overflow-y-auto pr-1 md:grid-cols-3 xl:grid-cols-4">
+                  <div className="grid max-h-[calc(100vh-330px)] grid-cols-2 gap-3 overflow-y-auto md:grid-cols-3">
                     {filteredProducts.map((product) => {
                       const stock = stockLabel(product);
                       const disabled = product.quantity <= 0;
-                      const inCart = cartQuantityByProduct.get(product._id) || 0;
-
                       return (
                         <button
                           key={product._id}
@@ -791,51 +600,28 @@ export default function POS() {
                           disabled={disabled}
                           onClick={() => handleProductClick(product)}
                           className={cn(
-                            "group relative flex min-h-[145px] flex-col justify-between overflow-hidden rounded-xl border border-border/80 bg-card p-3.5 text-left transition-all duration-150",
+                            'group flex flex-col justify-between rounded-xl border border-border bg-card p-3 text-left shadow-sm transition-all',
                             disabled
-                              ? "cursor-not-allowed opacity-45"
-                              : "hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md active:translate-y-0 active:shadow-sm"
+                              ? 'cursor-not-allowed opacity-50'
+                              : 'hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md active:translate-y-0'
                           )}
                         >
-                          {inCart > 0 && (
-                            <span className="absolute right-2.5 top-2.5 flex h-6 min-w-6 items-center justify-center rounded-full bg-primary px-1.5 text-[10px] font-black text-primary-foreground shadow-sm">
-                              {inCart}
-                            </span>
-                          )}
-
-                          <div>
-                            <div className="flex items-start gap-2 pr-6">
-                              <div className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-muted text-muted-foreground transition-colors group-hover:bg-primary/10 group-hover:text-primary">
-                                <PackageCheck className="h-4 w-4" />
-                              </div>
-                              {product.hasMultipleUnits && (
-                                <span className="ml-auto shrink-0 rounded-md bg-primary/10 p-1 text-primary" title="Multiple units available">
-                                  <Layers className="h-3.5 w-3.5" />
-                                </span>
-                              )}
-                            </div>
-                            <h3 className="mt-3 line-clamp-2 text-sm font-bold leading-5">{product.name}</h3>
-                            {product.barcode && (
-                              <p className="mt-1 flex items-center gap-1 truncate text-[10px] text-muted-foreground">
-                                <Barcode className="h-3 w-3 shrink-0" />
-                                {product.barcode}
-                              </p>
+                          <div className="flex items-start justify-between gap-1">
+                            <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{product.name}</h3>
+                            {product.hasMultipleUnits && (
+                              <Layers className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                             )}
                           </div>
-
-                          <div className="mt-4 flex items-end justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-base font-black tabular-nums text-primary">
-                                {formatCurrency(product.sellingPrice)}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground">per {product.baseUnit}</p>
-                            </div>
+                          <div className="mt-3">
+                            <p className="text-base font-extrabold tabular-nums text-primary">
+                              {formatCurrency(product.sellingPrice)}
+                            </p>
                             <span
                               className={cn(
-                                "max-w-[48%] truncate rounded-md px-1.5 py-1 text-[10px] font-semibold",
-                                stock.tone === "bad" && "bg-destructive/10 text-destructive",
-                                stock.tone === "warn" && "bg-accent/20 text-accent-foreground",
-                                stock.tone === "ok" && "bg-secondary text-secondary-foreground"
+                                'mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-medium',
+                                stock.tone === 'bad' && 'bg-destructive/10 text-destructive',
+                                stock.tone === 'warn' && 'bg-accent/25 text-accent-foreground',
+                                stock.tone === 'ok' && 'bg-secondary text-secondary-foreground'
                               )}
                             >
                               {stock.text}
@@ -850,27 +636,17 @@ export default function POS() {
             </Card>
           </section>
 
-          {/* Desktop sale rail */}
-          <aside className="hidden min-h-0 lg:block">
-            <Card className="sticky top-4 flex max-h-[calc(100vh-155px)] min-h-[calc(100vh-155px)] flex-col overflow-hidden rounded-2xl border-border/80 shadow-sm">
-              <div className="shrink-0 border-b border-border/70 bg-primary px-4 py-3.5 text-primary-foreground">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-2.5">
-                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary-foreground/15">
-                      <ShoppingCart className="h-4 w-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-bold">Current sale</p>
-                      <p className="text-[11px] text-primary-foreground/70">
-                        {cart.length ? `${cart.length} line${cart.length === 1 ? "" : "s"} in cart` : "Ready for items"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] uppercase tracking-wide text-primary-foreground/60">Total</p>
-                    <p className="text-lg font-black tabular-nums">{formatCurrency(total)}</p>
-                  </div>
+          {/* Cart - desktop */}
+          <aside className="hidden lg:col-span-2 lg:block">
+            <Card className="sticky top-4 flex max-h-[calc(100vh-120px)] flex-col overflow-hidden">
+              <div className="flex items-center justify-between border-b border-border bg-primary px-4 py-3 text-primary-foreground">
+                <div className="flex items-center gap-2">
+                  <ShoppingCart className="h-4 w-4" />
+                  <span className="font-semibold">Current Sale</span>
                 </div>
+                <span className="rounded-full bg-primary-foreground/20 px-2 py-0.5 text-xs font-semibold">
+                  {cart.length} {cart.length === 1 ? 'line' : 'lines'}
+                </span>
               </div>
               <CartPanel />
             </Card>
@@ -878,52 +654,38 @@ export default function POS() {
         </div>
       </div>
 
-      {/* Mobile cart bar */}
-      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background/95 p-3 shadow-[0_-8px_30px_rgba(0,0,0,0.10)] backdrop-blur lg:hidden">
-        <Button
-          className="h-12 w-full rounded-xl text-sm font-bold shadow-sm"
-          onClick={() => setShowMobileCart(true)}
-        >
+      {/* Cart - mobile bottom bar */}
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-card p-3 shadow-[0_-4px_16px_rgba(0,0,0,0.08)] lg:hidden">
+        <Button className="h-12 w-full justify-between text-base" onClick={() => setShowMobileCart(true)}>
           <span className="flex items-center gap-2">
-            <ShoppingCart className="h-4 w-4" />
-            {cart.length} {cart.length === 1 ? "line" : "lines"}
+            <ShoppingCart className="h-5 w-5" />
+            {cart.length} {cart.length === 1 ? 'item' : 'items'}
           </span>
-          <span className="ml-auto font-black tabular-nums">{formatCurrency(total)}</span>
-          <ChevronRight className="ml-2 h-4 w-4" />
+          <span className="font-extrabold tabular-nums">{formatCurrency(total)}</span>
         </Button>
       </div>
       <div className="h-20 lg:hidden" />
 
-      {/* Mobile cart sheet */}
+      {/* Cart - mobile sheet */}
       <Dialog open={showMobileCart} onOpenChange={setShowMobileCart}>
-        <DialogContent className="flex max-h-[94vh] max-w-lg flex-col overflow-hidden rounded-2xl p-0">
-          <DialogHeader className="shrink-0 border-b border-border bg-primary px-4 py-3.5 text-primary-foreground">
-            <div className="flex items-center justify-between pr-6">
-              <div>
-                <DialogTitle className="text-primary-foreground">Current sale</DialogTitle>
-                <p className="mt-0.5 text-[11px] text-primary-foreground/70">
-                  {itemCount} {itemCount === 1 ? "unit" : "units"} · {formatCurrency(total)}
-                </p>
-              </div>
-            </div>
+        <DialogContent className="max-h-[90vh] max-w-lg overflow-hidden p-0">
+          <DialogHeader className="border-b border-border bg-primary px-4 py-3 text-primary-foreground">
+            <DialogTitle className="text-primary-foreground">Current Sale</DialogTitle>
           </DialogHeader>
-          <div className="flex min-h-0 flex-1 overflow-hidden">
-            <CartPanel mobile />
+          <div className="max-h-[75vh] overflow-y-auto">
+            <CartPanel />
           </div>
         </DialogContent>
       </Dialog>
 
       {/* Unit selection */}
       <Dialog open={showUnitDialog} onOpenChange={setShowUnitDialog}>
-        <DialogContent className="max-w-md rounded-2xl">
+        <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold">Add {selectedProduct?.name}</DialogTitle>
+            <DialogTitle>Add {selectedProduct?.name}</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4 py-2">
-            <div className="rounded-xl bg-muted/40 p-3 text-xs text-muted-foreground">
-              Choose the selling unit and quantity for this line item.
-            </div>
             <div className="space-y-2">
               <Label>Unit</Label>
               <Select value={selectedUnit} onValueChange={setSelectedUnit}>
@@ -974,25 +736,25 @@ export default function POS() {
 
       {/* Payment */}
       <Dialog open={showPaymentDialog} onOpenChange={setShowPaymentDialog}>
-        <DialogContent className="max-h-[94vh] max-w-2xl overflow-y-auto rounded-2xl">
+        <DialogContent className="max-h-[92vh] max-w-2xl overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="text-lg font-bold">Complete payment</DialogTitle>
+            <DialogTitle>Payment</DialogTitle>
           </DialogHeader>
 
           <div className="space-y-4">
-            <div className="rounded-2xl bg-primary px-5 py-4 text-primary-foreground shadow-sm">
+            <div className="rounded-xl bg-primary px-4 py-3 text-primary-foreground">
               <div className="flex items-baseline justify-between">
                 <span className="text-sm uppercase tracking-wide opacity-80">Amount due</span>
-                <span className="text-3xl font-black tracking-tight tabular-nums">{formatCurrency(total)}</span>
+                <span className="text-3xl font-extrabold tabular-nums">{formatCurrency(total)}</span>
               </div>
               <p className="mt-1 text-xs opacity-80">
                 {itemCount} unit(s) · {selectedCustomerObj ? selectedCustomerObj.name : 'Walk-in customer'}
               </p>
             </div>
 
-            <div className="space-y-3 rounded-xl border border-border/70 bg-muted/20 p-3">
+            <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <Label className="font-bold">Payment methods</Label>
+                <Label>Payment methods</Label>
                 <Button size="sm" variant="outline" onClick={addPaymentMethod}>
                   <Plus className="mr-1 h-4 w-4" />
                   Split payment
@@ -1093,7 +855,7 @@ export default function POS() {
               )}
             </div>
 
-            <div className="sticky bottom-0 flex gap-2 border-t border-border bg-background pt-3">
+            <div className="flex gap-2">
               <Button variant="outline" className="flex-1" onClick={() => setShowPaymentDialog(false)}>
                 Back
               </Button>
