@@ -532,7 +532,9 @@ export default function Invoices() {
   }
 
   // ── SHARED ITEM ADDER (reused for both receive + edit dialogs) ─────────
-  const ItemAdderRow = ({ currentItm, setCurrentItm, onAdd, errors, setErrors }) => (
+  // Rendered as a function (not a nested component) so typing does not remount
+  // the inputs and steal focus.
+  const renderItemAdderRow = ({ currentItm, setCurrentItm, onAdd, errors, setErrors }) => (
     <div className="grid grid-cols-12 gap-3 items-end bg-gray-50 p-4 rounded-lg">
       <div className="col-span-5 space-y-2">
         <Label>Product <span className="text-red-500">*</span></Label>
@@ -1005,10 +1007,10 @@ export default function Invoices() {
                 <h3 className="font-semibold">Add Products</h3>
                 {formErrors.items && <p className="text-sm text-red-500">{formErrors.items}</p>}
               </div>
-              <ItemAdderRow
-                currentItm={currentItem} setCurrentItm={setCurrentItem}
-                onAdd={addItemToList} errors={formErrors} setErrors={setFormErrors}
-              />
+              {renderItemAdderRow({
+                currentItm: currentItem, setCurrentItm: setCurrentItem,
+                onAdd: addItemToList, errors: formErrors, setErrors: setFormErrors,
+              })}
               {currentItem.productId && currentItem.buyingPrice && products.find(p => p._id === currentItem.productId) && (
                 Math.abs(parseFloat(currentItem.buyingPrice) - (products.find(p => p._id === currentItem.productId)?.buyingPrice || 0)) > 0.01 && (
                   <div className="text-sm p-2 bg-emerald-50 rounded border border-emerald-200">
@@ -1231,10 +1233,10 @@ export default function Invoices() {
                 <h3 className="font-semibold">Products</h3>
                 {editFormErrors.items && <p className="text-sm text-red-500">{editFormErrors.items}</p>}
               </div>
-              <ItemAdderRow
-                currentItm={editCurrentItem} setCurrentItm={setEditCurrentItem}
-                onAdd={addEditItem} errors={editFormErrors} setErrors={setEditFormErrors}
-              />
+              {renderItemAdderRow({
+                currentItm: editCurrentItem, setCurrentItm: setEditCurrentItem,
+                onAdd: addEditItem, errors: editFormErrors, setErrors: setEditFormErrors,
+              })}
 
               {editFormData.items.length > 0 && (
                 <div className="border rounded-lg overflow-hidden">

@@ -343,7 +343,9 @@ export default function POS() {
     return { text: `${Number(product.quantity).toFixed(2)} ${product.baseUnit}`, tone: 'ok' };
   };
 
-  const CartPanel = ({ mobile = false }) => (
+  // Rendered as a function (not a nested component) so React keeps the same
+  // DOM between renders - otherwise the cart remounts, losing scroll & focus.
+  const renderCartPanel = (mobile = false) => (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* Scrollable cart items */}
       <div
@@ -725,7 +727,7 @@ export default function POS() {
                   {cart.length} {cart.length === 1 ? 'line' : 'lines'}
                 </span>
               </div>
-              <CartPanel />
+              {renderCartPanel()}
             </Card>
           </aside>
         </div>
@@ -750,7 +752,7 @@ export default function POS() {
             <DialogTitle className="text-primary-foreground">Current Sale</DialogTitle>
           </DialogHeader>
           <div className="flex max-h-[calc(90vh-58px)] min-h-0 flex-1 flex-col overflow-hidden">
-            <CartPanel mobile />
+            {renderCartPanel(true)}
           </div>
         </DialogContent>
       </Dialog>
